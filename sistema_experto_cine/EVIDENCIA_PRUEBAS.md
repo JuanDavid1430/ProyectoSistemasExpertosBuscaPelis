@@ -1,35 +1,49 @@
-# Plan de pruebas y evidencia — CineExperto
+# Evidencia de pruebas — Entregable 2
 
-> **Estado de esta entrega:** Este archivo contiene **resultados esperados y verificables**, NO una captura de ejecución real. Para registrar resultados obtenidos se debe correr `python pruebas.py` en una máquina con SWI-Prolog y PySwip instalados y adjuntar `evidencia_terminal.txt` o capturas de la terminal.
+Ejecución local realizada el **20 de octubre de 2026** con SWI-Prolog 10.0.2,
+PySwip y Python. Resultado obtenido: **12/12 pruebas aprobadas**.
 
-| Caso | Objetivo / entrada | Consulta Prolog | Resultado esperado |
-|---|---|---|---|
-| 1. Normal 1 | Único diagnóstico claro; `películas de romance` | `buscar_json("películas de romance", -1, Json)` | Solo *Titanic* por su género romance. |
-| 2. Normal 2 | Múltiples coincidencias; `películas divertidas` | `buscar_json("películas divertidas", -1, Json)` | *El Conjuro* aparece por opiniones, mantiene género terror; también *Shrek*. |
-| 3. Exclusión | Niños de 7 años; `películas para niños` | `buscar_json("películas para niños", 7, Json)` | *Toy Story*, *Coco*, *Shrek* sí; *El Conjuro*, *Deadpool*, *Coraline* y el registro sintético `caso_terror_infantil` no. |
-| 4. Borde 1 | Restricción edad 5; `películas divertidas` | `buscar_json("películas divertidas", 5, Json)` | *Shrek* sí; *El Conjuro* y *Deadpool* no. |
-| 5. Borde 2 | Consulta vacía `""` | `buscar_json("", -1, Json)` | Estado `consulta_vacia`, lista `[]`. |
-| 6. Adicional | Texto sin vocabulario reconocido | `buscar_json("películas intergalácticas", -1, Json)` | `criterio_no_reconocido`, lista `[]`. |
-| 7. Adicional | Redundancia `divertidas graciosas divertidas` | `buscar_json("divertidas graciosas divertidas", -1, Json)` | `criterios=[divertida]`; películas únicas. |
-| 8. Adicional | Búsqueda de género `películas de terror` | `buscar_json("películas de terror", -1, Json)` | *El Conjuro* e *It*, no *Toy Story*. |
+```text
+[OK]    inferencia definitiva + traza
+[OK]    empate + pregunta de desempate
+[OK]    negación y condición excluyente
+[OK]    filtro etario
+[OK]    cobertura de varios criterios
+[OK]    consulta vacía
+[OK]    criterio desconocido
+[OK]    sinónimos y deduplicación
+[OK]    entrada tratada como dato
+[OK]    validación de edad en el puente
+[OK]    persistencia y ranking por reseña
+[OK]    reseñas recurrentes activan inferencia
 
-## Evidencia reproducible
-
-```bash
-python pruebas.py > evidencia_terminal.txt
+RESULTADO: 12/12 pruebas aprobadas
 ```
 
-El script imprime para **cada caso** objetivo, entrada, consulta Prolog, expectativa, datos obtenidos y `APROBADO`/`FALLÓ`, seguido de total de pruebas. El código retorna `0` cuando todas pasan y `1` si al menos una falla.
+## Cobertura
 
-## Revisión manual de los requisitos
+| Caso | Entrada principal | Verificación |
+|---|---|---|
+| Inferencia completa | `películas de romance` | Titanic es líder único; decisión `definitiva`; traza contiene R02 y R13. |
+| Evidencia insuficiente | `películas divertidas` | Cuatro líderes empatan; Prolog recomienda preguntar por `infantil`. |
+| Condición excluyente | `películas para niños`, edad 7 | El caso sintético de terror se descarta por `\+ contenido_de_terror/1`. |
+| Edad | `películas divertidas`, edad 5 | Se excluyen Deadpool, El Conjuro y Hotel Transilvania. |
+| Cobertura múltiple | `animación de aventura` | Toy Story y Nemo cubren ambos criterios. |
+| Entrada vacía | espacios | Estado `consulta_vacia`, sin excepción. |
+| Vocabulario desconocido | `películas intergalácticas` | Estado `criterio_no_reconocido`. |
+| Deduplicación | sinónimos repetidos | Un criterio canónico y resultados únicos. |
+| Seguridad | texto con comillas y términos | La entrada se trata como dato, no como objetivo Prolog. |
+| Validación de puente | edad `-2` | Python rechaza el tipo/rango antes de consultar. |
+| Persistencia | nueva reseña de Toy Story | El comentario queda disponible y la valoración desempata el ranking. |
+| Inferencia dinámica | dos reseñas `emocionante` para Titanic | La percepción recurrente activa a Titanic en una búsqueda posterior. |
 
-- Hechos con aridad >= 2: ocho predicados y más de treinta registros.
-- Reglas de encadenamiento: R01–R29, tres niveles, llamadas cruzadas explícitas.
-- Listas: `findall/3`, `sort/2`, `length/2`, `member/2` y recorrido con acumulador.
-- Corte `!`: `edad_habilitada/2`, `puntaje_fuente/2`, `prioridad_de_puntaje/2`, `estado_consulta/4`.
-- Negación por fallo `\+`: `apta_para_ninos/1`, con película instanciada.
-- Múltiples hipótesis: cinco fuentes de coincidencia y todas las evidencias por película.
-- Prioridad: escala de 20 a 100 calculada exclusivamente en Prolog.
-- Caso de lista vacía: `findall` y `sort` retornan una lista vacía sin excepción.
+## Reproducción
 
-**Importante:** comprobar la ejecución real antes de presentar este reporte como validación definitiva, porque aquí no se dispuso del intérprete SWI-Prolog.
+```powershell
+cd sistema_experto_cine
+python -m pip install -r requirements.txt
+python pruebas.py
+```
+
+El proceso retorna código `0` cuando todas las pruebas pasan y `1` si alguna
+falla.

@@ -1,78 +1,128 @@
 # Diccionario de predicados de CineExperto
 
-**Convención de modos:** `+` entrada instanciada, `-` salida derivada, `?` entrada o salida. Los predicados de búsqueda se diseñaron para recibir desde Python una consulta ya instanciada y opcionalmente una edad.
+Convención de modos: `+` entrada instanciada, `-` salida y `?` argumento que
+puede usarse como entrada o salida. La interfaz invoca únicamente
+`buscar_json/3`; los demás predicados pertenecen al motor simbólico.
 
-## Hechos (todos estructurados con aridad >= 2)
+## Hechos y conocimiento declarativo
 
-| Predicado / aridad | Modo | Descripción |
+| Predicado/aridad | Modo | Descripción |
 |---|---|---|
-| `pelicula/3` | `?Id, ?Titulo, ?Anio` | Catálogo y metadatos básicos. |
-| `genero/2` | `?Id, ?Genero` | Género editorial, separado de las opiniones. |
-| `etiqueta/2` | `?Id, ?Etiqueta` | Etiquetas oficiales del catálogo local. |
-| `edad_minima/2` | `?Id, ?Edad` | Edad mínima ilustrativa del prototipo. |
-| `sinopsis/2` | `?Id, ?Texto` | Texto descriptivo de la película. |
-| `tema_sinopsis/2` | `?Id, ?Tema` | Índice temático manual derivado de la sinopsis. |
-| `opinion/4` | `?Id, ?Autor, ?Texto, ?Percepcion` | Reseña ficticia y su categoría perceptiva. |
-| `sinonimo/2` | `?Token, ?Criterio` | Vocabulario de consultas admitidas. |
+| `pelicula/3` | `?Id, ?Titulo, ?Anio` | Catálogo y metadatos principales. |
+| `genero/2` | `?Id, ?Genero` | Género editorial de una película. |
+| `etiqueta/2` | `?Id, ?Etiqueta` | Etiquetas editoriales del catálogo. |
+| `edad_minima/2` | `?Id, ?Edad` | Edad mínima didáctica. |
+| `sinopsis/2` | `?Id, ?Texto` | Sinopsis ampliada de la película. |
+| `tema_sinopsis/2` | `?Id, ?Tema` | Índice temático manual de la sinopsis. |
+| `opinion/4` | `?Id, ?Autor, ?Texto, ?Percepcion` | Opinión ficticia estructurada. |
+| `sinonimo/2` | `?Token, ?Criterio` | Normalización del vocabulario de consulta. |
+| `titulo_consulta/3` | `?Criterio, ?Id, ?Palabras` | Índice de títulos y alias reconocibles en una consulta. |
+| `peso_criterio/2` | `?Criterio, ?Peso` | Prioridad simbólica de una pregunta de desempate. |
+| `pregunta_criterio/2` | `?Criterio, ?Pregunta` | Texto sugerido para solicitar evidencia adicional. |
 
-## Reglas de inferencia y sus niveles
+## Validación e inferencia de búsqueda
 
-| Firma | Modo de instanciación | Nivel | Función |
-|---|---|---|---|
-| `pelicula_valida/1` | `?P` | 1 | Identifica películas registradas. |
-| `genero_validado/2` | `?P, ?G` | 1 | Valida género contra película existente. |
-| `etiqueta_validada/2` | `?P, ?E` | 1 | Valida etiqueta editorial. |
-| `tema_validado/2` | `?P, ?T` | 1 | Exige sinopsis y tema indexado. |
-| `edad_valida/2` | `?P, ?Edad` | 1 | Revisa edad mínima registrada. |
-| `edad_compatible/2` | `?P, +Edad` | 1 | Comprueba que el espectador cumpla la edad mínima. |
-| `edad_habilitada/2` | `+P, +Edad` | 1 | Permite edad `-1` (sin filtro) o verifica edad. Usa corte. |
-| `opinion_validada/3` | `?P, ?Autor, ?Tema` | 1 | Verifica atribución de la reseña. |
-| `contenido_de_terror/1` | `?P` | 1 | Detecta género terror para una regla de exclusión. |
-| `orientacion_infantil/1` | `?P` | 2 | Busca etiqueta infantil o familiar. |
-| `percepcion_recurrente/3` | `?P, +Tema, -Total` | 2 | Reúne revisores con `findall`, quita duplicados y exige mínimo dos. |
-| `apta_para_ninos/1` | `?P` | 2 | Combina edad <= 10, orientación y `\+ contenido_de_terror`. |
-| `coincidencia_genero/4` | `?P, +C, -Fuente, -Motivo` | 2 | Evidencia por género. |
-| `coincidencia_etiqueta/4` | `?P, +C, -Fuente, -Motivo` | 2 | Evidencia por etiqueta. |
-| `coincidencia_sinopsis/4` | `?P, +C, -Fuente, -Motivo` | 2 | Evidencia por tema indexado. |
-| `coincidencia_opinion/4` | `?P, +C, -Fuente, -Motivo` | 2 | Evidencia por dos o más autores, sin reclasificar género. |
-| `coincidencia_infantil/4` | `?P, +infantil, -Fuente, -Motivo` | 2 | Filtra por aptitud infantil. |
-| `coincidencia/4` | `?P, +C, -Fuente, -Motivo` | 3 | Une cinco formas de coincidencia. |
-| `puntaje_fuente/2` | `+Fuente, -Puntos` | 3 | Prioridad numérica por fuente; usa cortes y fallback. |
-| `prioridad_de_puntaje/2` | `+Puntos, -Prioridad` | 3 | Clasifica relevancia en alta/media/baja. |
-| `evidencia/3` | `?P, +C, -Evidencia` | 3 | Construye término de evidencia con puntaje. |
-| `mejor_evidencia/2` | `+Lista, -Mejor` | 3 | Selecciona mayor puntaje de lista finita. |
-| `mejor_aux/3` | `+Resto, +Acumulada, -Mejor` | 3 | Recorre la lista de forma estructural y terminante. |
-| `evidencia_dict/2` | `+Evidencia, -Dict` | 3 | Transforma explicación a diccionario exportable. |
-| `resultado_para/3` | `+Criterios, +P, -Resultado` | 3 | Agrega ficha, evidencia, mejor fuente y prioridad. |
-| `criterio_admisible/2` | `+P, +C` | 3 | Exige aptitud infantil para búsquedas infantiles y género editorial terror para búsquedas de terror. |
-| `buscar_peliculas/3` | `+Criterios, +Edad, -Resultados` | 3 | Consulta central, `findall`, `sort`, ranking descendente, deduplicación. |
-| `consulta_a_criterios/2` | `+Consulta, -ListaCriterios` | 3 | Tokeniza y normaliza sinónimos dentro de Prolog. |
-| `estado_consulta/4` | `+Consulta, +Criterios, +Resultados, -Estado` | 3 | Estado único mediante cortes y fallback. |
-| `buscar_json/3` | `+Consulta, +Edad, -Json` | 3 | Punto de entrada desde Python; entrega un JSON con resultados. |
-| `buscar_json/2` | `+Consulta, -Json` | 3 | Alias sin edad específica (valor `-1`). |
+| Predicado/aridad | Modo | Función |
+|---|---|---|
+| `pelicula_valida/1` | `?P` | Comprueba pertenencia al catálogo. |
+| `genero_validado/2` | `?P, ?G` | Valida el género contra una película existente. |
+| `etiqueta_validada/2` | `?P, ?E` | Valida una etiqueta editorial. |
+| `tema_validado/2` | `?P, ?T` | Exige película, sinopsis e índice temático. |
+| `edad_valida/2` | `?P, ?Min` | Verifica una edad mínima entera no negativa. |
+| `edad_compatible/2` | `?P, +Edad` | Prueba que la edad ingresada alcance el mínimo. |
+| `edad_habilitada/2` | `+P, +Edad` | Acepta `-1` como ausencia de filtro o aplica compatibilidad. |
+| `opinion_validada/3` | `?P, ?Autor, ?Tema` | Unifica opiniones iniciales y reseñas persistentes. |
+| `contenido_de_terror/1` | `?P` | Detecta el género que activa una exclusión infantil. |
+| `orientacion_infantil/1` | `?P` | Reconoce etiquetas infantil o familiar. |
+| `percepcion_recurrente/3` | `?P, +Tema, -Total` | Exige dos autores distintos para usar opiniones como evidencia. |
+| `apta_para_ninos/1` | `?P` | Edad ≤ 10, orientación infantil y `\+ contenido_de_terror(P)`. |
+| `coincidencia_genero/4` | `?P, +C, -Fuente, -Motivo` | Produce evidencia de género. |
+| `coincidencia_etiqueta/4` | `?P, +C, -Fuente, -Motivo` | Produce evidencia de etiqueta. |
+| `coincidencia_sinopsis/4` | `?P, +C, -Fuente, -Motivo` | Produce evidencia temática. |
+| `coincidencia_opinion/4` | `?P, +C, -Fuente, -Motivo` | Produce evidencia de percepción recurrente. |
+| `coincidencia_infantil/4` | `?P, +infantil, -Fuente, -Motivo` | Produce evidencia de aptitud infantil. |
+| `coincidencia_titulo/4` | `?P, +C, -Fuente, -Motivo` | Produce evidencia de coincidencia directa con un título. |
+| `coincidencia/4` | `?P, +C, -Fuente, -Motivo` | Unifica las seis fuentes posibles. |
+| `criterio_admisible/2` | `+P, +C` | Aplica filtros duros para `infantil` y `terror`. |
+| `puntaje_fuente/2` | `+Fuente, -Puntos` | Peso: título 120, infantil 100, género 95, etiqueta 85, sinopsis 70, opiniones 55. |
+| `prioridad_de_puntaje/2` | `+Puntos, -Nivel` | Clasifica prioridad alta, media o baja. |
+| `evidencia/3` | `?P, +C, -Termino` | Empaqueta criterio, fuente, motivo y puntaje. |
+| `mejor_evidencia/2` | `+Lista, -Mejor` | Selecciona el elemento de mayor peso. |
+| `mejor_aux/3` | `+Resto, +Acumulada, -Mejor` | Recorrido estructural de selección. |
+| `mejor_evidencia_criterio/3` | `+P, +C, -Mejor` | Impide puntuar dos veces un mismo criterio. |
+| `suma_puntajes/2` | `+Evidencias, -Total` | Suma el mejor aporte por criterio. |
+| `nivel_coincidencia/3` | `+Solicitados, +Cobertura, -Nivel` | Deriva `muy_alta`, `alta`, `parcial` o `insuficiente`. |
+| `evidencia_dict/2` | `+Termino, -Dict` | Convierte evidencia a estructura exportable. |
+| `calificacion_promedio/2` | `+P, -Promedio` | Calcula el promedio de las calificaciones aportadas por usuarios. |
+| `resultado_para/3` | `+Criterios, +P, -Dict` | Construye una hipótesis con cobertura, puntaje y valoración. |
+| `buscar_peliculas/3` | `+Criterios, +Edad, -Resultados` | Deduplica, filtra y ordena hipótesis. |
+| `contiene_secuencia/2` | `+Secuencia, +Palabras` | Comprueba que las palabras de un título aparezcan consecutivamente. |
+| `consulta_a_criterios/2` | `+Consulta, -Criterios` | Normaliza el texto exclusivamente en Prolog. |
+| `estado_consulta/4` | `+Consulta, +Criterios, +Resultados, -Estado` | Determina el estado funcional de la consulta. |
 
-## Priorización de coincidencia en Prolog
+## Módulo «¿Por qué?» — explicabilidad
 
-| Fuente | Puntaje | Nivel |
-|---|---:|---|
-| Aptitud infantil verificada | 100 | Alta |
-| Género editorial | 95 | Alta |
-| Etiqueta editorial | 85 | Alta |
-| Tema de sinopsis indexada | 70 | Media |
-| Percepción repetida en opiniones | 55 | Media |
-| Fuente no prevista (fallback) | 20 | Baja |
+| Predicado/aridad | Modo | Función |
+|---|---|---|
+| `regla_catalogo/3` | `?Id, ?Nombre, ?Detalle` | Metadatos legibles de reglas auditables. |
+| `regla_fuente/2` | `?Fuente, ?IdRegla` | Relaciona una fuente de evidencia con reglas disparadas. |
+| `regla_dict/2` | `+Id, -Dict` | Serializa una regla. |
+| `reglas_disparadas/3` | `+Criterios, +P, -Reglas` | Reconstruye la ruta lógica de la hipótesis principal. |
+| `hecho_evidencia/4` | `+P, +C, +Fuente, -Texto` | Materializa el hecho unificado por una evidencia. |
+| `hechos_verdaderos/4` | `+Criterios, +Edad, +P, -Hechos` | Reúne hechos del catálogo y entrada comprobados. |
+| `motivo_descarte/7` | `+Criterios, +Edad, +Resultados, +Competidores, -P, -Titulo, -Motivo` | Explica exclusión, edad, falta de evidencia o menor puntaje. |
+| `primeros_n/3` | `+N, +Lista, -Prefijo` | Limita la lista visual sin alterar la decisión. |
+| `hipotesis_descartadas/5` | `+Criterios, +Edad, +Resultados, +Competidores, -Descartadas` | Recolecta alternativas y sus causas. |
+| `auditoria_motor/5` | `+Criterios, +Edad, +Resultados, +Competidores, -Auditoria` | Construye reglas, hechos y descartes del panel «¿Por qué?». |
 
-## Consultas demostrativas en SWI-Prolog
+## Módulo «¿Qué falta?» — recomendación
+
+| Predicado/aridad | Modo | Función |
+|---|---|---|
+| `mejor_puntaje/2` | `+Resultados, -Puntaje` | Obtiene el puntaje líder de la lista ordenada. |
+| `hipotesis_competencia/2` | `+Resultados, -Competidores` | Conserva todas las hipótesis empatadas en primer lugar. |
+| `competidor_dict/2` | `+Resultado, -Dict` | Resume una hipótesis para la interfaz. |
+| `criterio_soportado/2` | `+P, ?C` | Comprueba si una película aporta evidencia admisible. |
+| `candidato_desempate/4` | `+Criterios, +Ids, -C, -Score` | Busca un criterio no preguntado que divida a los líderes. |
+| `mejor_par/2` | `+Pares, -Mejor` | Selecciona el criterio adicional de mayor prioridad. |
+| `recomendacion_desempate/3` | `+Criterios, +Competidores, -Dict` | Formula la mejor pregunta cuando existe empate. |
+| `recomendacion_confirmacion/3` | `+Criterios, +Competidor, -Dict` | Pide evidencia para completar una hipótesis parcial. |
+| `decision_motor/4` | `+Criterios, +Resultados, +Competidores, -Decision` | Emite decisión definitiva, insuficiente o sin candidatos. |
+| `buscar_json/3` | `+Consulta, +Edad, -Json` | Contrato auditable PySwip–Prolog con resultados, decisión y auditoría. |
+| `buscar_json/2` | `+Consulta, -Json` | Alias que usa `-1` como ausencia de filtro etario. |
+
+## Cartelera y reseñas persistentes
+
+| Predicado/aridad | Modo | Función |
+|---|---|---|
+| `resena_usuario/6` | `?P, ?Autor, ?Texto, ?Percepcion, ?Calificacion, ?Fecha` | Hecho persistente generado por `library(persistency)`. |
+| `inicializar_resenas/1` | `+Archivo` | Adjunta el almacén local indicado por Python. |
+| `normalizar_atom_entrada/2` | `+Entrada, -Atom` | Acepta texto o átomo y produce una clave validable. |
+| `texto_limpio/5` | `+Entrada, +Min, +Max, -Texto, -Atom` | Normaliza espacios y valida la longitud de una captura. |
+| `percepcion_permitida/1` | `?Percepcion` | Vocabulario admitido para nuevas reseñas. |
+| `resena_dict/2` | `+P, -Dict` | Unifica opiniones base y reseñas de la comunidad para la UI. |
+| `listar_resenas/2` | `+P, -Resenas` | Reúne todos los comentarios de una película. |
+| `listar_resenas_json/2` | `+Id, -Json` | Contrato JSON del panel de comentarios. |
+| `detalle_pelicula_json/2` | `+Id, -Json` | Devuelve ficha, sinopsis, etiquetas, valoración y reseñas. |
+| `autores_percepcion/3` | `+P, +Percepcion, -Total` | Cuenta autores únicos que respaldan una percepción. |
+| `agregar_resena_json/6` | `+Id, +Autor, +Texto, +Percepcion, +Calificacion, -Json` | Valida, persiste y reporta el impacto inferencial de una reseña. |
+
+La calificación promedio se utiliza únicamente como desempate entre hipótesis
+con el mismo puntaje simbólico. Las opiniones no alteran géneros ni etiquetas:
+una percepción participa como evidencia solo cuando existen dos autores
+distintos, manteniendo la regla de recurrencia del sistema experto.
+
+## Consultas demostrativas
 
 ```prolog
-?- buscar_peliculas([terror], -1, Resultados).
-?- buscar_peliculas([infantil], 7, Resultados).
-?- buscar_peliculas([divertida], -1, Resultados).
-?- percepcion_recurrente(el_conjuro, divertida, Total).
-?- apta_para_ninos(toy_story).
-?- apta_para_ninos(el_conjuro).
-?- consulta_a_criterios("películas para niños", Criterios).
-?- buscar_json("películas para niños", 7, Json).
+?- buscar_json("películas de romance", -1, Json).
+?- buscar_json("películas divertidas", -1, Json).
+?- buscar_json("Toy Story", -1, Json).
+?- buscar_json("películas para niños", -1, Json).
+?- reglas_disparadas([romance], titanic, Reglas).
+?- hipotesis_competencia(Resultados, Competidores).
+?- recomendacion_desempate([divertida], Competidores, Recomendacion).
 ```
 
-**Desde Python:** `MotorCine.buscar("películas para niños", edad=7)` ejecuta el predicado `buscar_json/3`. Python **no** calcula compatibilidad etaria, criterios, sentimientos, exclusiones, fuentes ni prioridades.
+Python no calcula criterios, cobertura, puntajes, descartes ni preguntas; solo
+valida el tipo de entrada y presenta el JSON producido por `buscar_json/3`.

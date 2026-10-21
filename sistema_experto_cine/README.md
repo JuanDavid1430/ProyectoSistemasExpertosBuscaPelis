@@ -1,58 +1,110 @@
-# CineExperto — Sistema experto de búsqueda explicable de películas
+# CineExperto — buscador explicable de películas
 
-Entregable 1 para **Sistemas Expertos**. Un buscador global de películas que explica por qué aparecen en resultados, basado en hechos y reglas con **SWI-Prolog** y puente **PySwip + Python**. La fase actual es exclusivamente de **consola**; el dashboard queda para una etapa posterior.
+Proyecto académico de **Sistemas Expertos**. CineExperto conecta una interfaz
+web en Streamlit con un motor simbólico en SWI-Prolog mediante PySwip. Además de
+recomendar películas, expone las reglas disparadas, los hechos comprobados, las
+hipótesis descartadas y la pregunta que falta cuando la evidencia no permite
+elegir una única opción.
 
-## Ejemplos de razonamiento
+Repositorio: <https://github.com/JuanDavid1430/ProyectoSistemasExpertosBuscaPelis>
 
-- **«Películas de terror»**: devuelve películas con el género editorial de terror, como *El Conjuro*.
-- **«Películas divertidas»**: combina etiquetas, temas indexados de sinopsis y opiniones recurrentes. *El Conjuro* puede coincidir por dos reseñas que la describen como divertida; **sigue clasificada como terror**.
-- **«Películas para niños»**: exige edad mínima ilustrativa <= 10, etiquetas infantiles/familiares y exclusión de género terror. Si se añade `edad=7`, no muestra películas cuyo mínimo sea superior a 7.
-- **Consulta vacía o desconocida**: retorna lista vacía con estado explicativo, sin error.
+## Arquitectura híbrida
 
-**Precaución:** el catálogo utiliza 15 películas reales y 1 registro sintético de prueba (`caso_terror_infantil`), clasificaciones etarias de demostración y reseñas ficticias. No son ratings oficiales ni recomendaciones de seguridad para un niño real.
+```text
+Usuario → Streamlit (captura y presentación)
+        → MotorCine / PySwip (transporte seguro)
+        → base_conocimiento.pl (inferencia, ranking, traza y desempate)
+        → JSON auditable → Streamlit
+```
+
+- `main.py` no puntúa ni descarta películas: únicamente presenta la respuesta.
+- `motor.py` valida tipos, instancia los argumentos y transporta un JSON.
+- `base_conocimiento.pl` contiene hechos, reglas, negación, cortes, ranking,
+  auditoría, recomendación de evidencia adicional y reseñas persistentes.
+- No se utiliza `read/1`; por eso Prolog nunca bloquea el hilo de la interfaz.
+
+## Cartelera, fichas y reseñas
+
+- Cada resultado aparece como una tarjeta vertical tipo cartelera.
+- El buscador reconoce preferencias temáticas, expresiones como
+  `películas para niños` y los títulos del catálogo, por ejemplo `Toy Story`.
+- El botón **Ver película** abre una vista con póster, sinopsis,
+  metadatos, explicación de la coincidencia y comentarios.
+- Los pósters se colocan en `assets/posters` siguiendo los nombres indicados en
+  `assets/posters/README.md`. Mientras se suministran, aparece una cubierta de
+  reserva legible.
+- Las reseñas nuevas se guardan en `data/resenas_usuario.db` mediante la
+  biblioteca de persistencia de SWI-Prolog.
+- Una calificación sirve como desempate inmediato entre resultados con la misma
+  evidencia simbólica. Dos autores distintos con la misma percepción activan
+  una evidencia por opiniones en búsquedas posteriores.
 
 ## Requisitos
 
-- Python 3.10+.
-- SWI-Prolog instalado y accesible desde el sistema (incluida su biblioteca nativa).
-- PySwip, instalado con `pip install -r requirements.txt`.
+- Python 3.10 o posterior, de 64 bits.
+- SWI-Prolog de 64 bits instalado y disponible en `PATH`.
+- PySwip y Streamlit, declarados en `requirements.txt`.
 
-En **Ubuntu/Debian** se puede instalar SWI-Prolog mediante los paquetes oficiales de la distribución; por ejemplo: `sudo apt update && sudo apt install swi-prolog-nox`. En **Windows**, instalar SWI-Prolog de su página oficial y agregarlo al `PATH` junto con la biblioteca nativa; Python y SWI-Prolog deben utilizar arquitecturas compatibles. Si PySwip no detecta la librería, revisar la configuración de `SWI_HOME_DIR`/`PATH` según la plataforma.
+En Windows, Python y SWI-Prolog deben usar la misma arquitectura. Si PySwip no
+encuentra la biblioteca nativa, agrega las carpetas `bin` de SWI-Prolog al
+`PATH`, cierra la terminal y vuelve a abrirla.
 
-## Ejecución
+## Instalación y ejecución
 
-```bash
+```powershell
 cd sistema_experto_cine
 python -m pip install -r requirements.txt
-python main.py
+streamlit run main.py
 ```
 
-Para correr el conjunto de ocho casos y **generar evidencia real**:
+También se admite `python main.py`. El archivo detecta que fue iniciado fuera
+de Streamlit y se relanza automáticamente con el mismo intérprete de Python.
 
-```bash
+La aplicación se abre normalmente en <http://localhost:8501>. Para detenerla,
+presiona `Ctrl+C` en la terminal.
+
+## Casos requeridos para la demostración
+
+### Caso 1 — inferencia completa y «¿Por qué?»
+
+1. Consulta: `películas de romance`.
+2. Edad: sin filtro.
+3. Resultado esperado: **Titanic** como hipótesis única.
+4. Abre la pestaña **¿Por qué?** y muestra reglas, hechos verdaderos y descartes.
+
+### Caso 2 — evidencia incompleta y «¿Qué falta?»
+
+1. Consulta: `películas divertidas`.
+2. Edad: sin filtro.
+3. Resultado esperado: varias hipótesis líderes con el mismo puntaje.
+4. Abre **¿Qué falta?**. Prolog sugiere una preferencia adicional que divide a
+   las candidatas, por ejemplo si debe ser apta para público infantil.
+
+## Pruebas
+
+```powershell
 python pruebas.py
-python pruebas.py > evidencia_terminal.txt
 ```
 
-## Archivos
+Las **12 pruebas** cubren el puente PySwip, una decisión definitiva, un empate,
+la traza, el filtro etario, la exclusión con `\+`, entradas seguras, persistencia
+de reseñas, actualización del ranking y activación de inferencias por opiniones.
 
-- `FICHA_PROYECTO.md`: problema, justificación, alcance, participantes y casos de uso.
-- `base_conocimiento.pl`: 163 hechos estructurados (conteo en la muestra), 29 reglas enumeradas R01–R29 en tres niveles, listas, corte, negación, recolección, deduplicación y ranking.
-- `motor.py`: puente que carga Prolog, consulta `buscar_json/3` y muestra resultados.
-- `main.py`: ciclo de búsqueda en la terminal.
-- `pruebas.py`: ocho pruebas automáticas con comparación de esperado y obtenido.
-- `DICCIONARIO_PREDICADOS.md`: firmas, aridad, modos y responsabilidades.
-- `EVIDENCIA_PRUEBAS.md`: matriz de resultados **esperados** y modo de reproducir la ejecución.
+## Archivos de entrega
 
-## Reglas de diseño
+- `main.py`: interfaz moderna en Streamlit.
+- `motor.py`: puente seguro con PySwip.
+- `base_conocimiento.pl`: motor simbólico y de explicabilidad.
+- `DICCIONARIO_PREDICADOS.md`: modos `+`, `-`, `?` y documentación técnica.
+- `pruebas.py`: validación automatizada de los dos flujos del entregable.
+- `GUIA_VIDEO.md`: guion sugerido para la demostración de 3 a 5 minutos.
+- `assets/posters/README.md`: nombres esperados para los pósters suministrados.
+- `data/resenas_usuario.db`: almacenamiento generado en ejecución (ignorado por Git).
+- `../INFORME_ENTREGA_2.md`: informe listo para anexar a la Entrega 1.
 
-1. Los hechos de género, etiquetas y edad provienen de una fuente editorial. Las opiniones nunca actualizan esas categorías.
-2. Para considerar un comentario relevante se necesitan **al menos dos autores distintos** con la misma percepción. No es un clasificador automático de texto: el campo de percepción está estructurado en los hechos.
-3. Las búsquedas de `terror` se restringen al **género editorial**, evitando que comentarios aislados o temas indexados lo sustituyan.
-4. La sinopsis se consulta por su índice `tema_sinopsis/2`, curado manualmente; no se afirma tener búsquedas semánticas con embeddings o IA generativa.
-5. Se conservan **todas** las evidencias por película; un orden de prioridad escoge el motivo principal y ordena la búsqueda.
-6. Prolog implementa todos los filtros y decisiones; Python solo transporta datos y los imprime.
+## Alcance y advertencia
 
-## Limitaciones de la primera entrega
-
-Las búsquedas utilizan un vocabulario controlado de sinónimos. Las palabras desconocidas se ignoran si alguna palabra conocida está presente; si no hay ninguna, aparece `criterio_no_reconocido`. Cuando hay varios criterios reconocidos en una consulta se combinan con lógica **OR** (basta una coincidencia), se deduplican películas y se conserva el detalle de cada motivo. El filtro de edad se combina con **AND** y es siempre restrictivo. El objetivo siguiente es incorporar un API, fuentes contrastadas y dashboard.
+El catálogo es local y usa vocabulario controlado. Las edades, etiquetas y
+opiniones son datos didácticos, no clasificaciones oficiales ni recomendaciones
+de seguridad. El registro `caso_terror_infantil` es sintético y existe para
+demostrar una hipótesis descartada por condición excluyente.
