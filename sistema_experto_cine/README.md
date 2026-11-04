@@ -33,11 +33,19 @@ Usuario → Streamlit (captura y presentación)
 - Los pósters se colocan en `assets/posters` siguiendo los nombres indicados en
   `assets/posters/README.md`. Mientras se suministran, aparece una cubierta de
   reserva legible.
-- Las reseñas nuevas se guardan en `data/resenas_usuario.db` mediante la
-  biblioteca de persistencia de SWI-Prolog.
+- Las reseñas y categorías agregadas se guardan en `data/resenas_usuario.json`.
+  Si existe un archivo anterior `resenas_usuario.db` y aún no existe el JSON,
+  Prolog migra sus registros al iniciar y conserva el archivo antiguo.
 - Una calificación sirve como desempate inmediato entre resultados con la misma
-  evidencia simbólica. Dos autores distintos con la misma percepción activan
-  una evidencia por opiniones en búsquedas posteriores.
+  evidencia simbólica. Una sola reseña ya aporta evidencia por su percepción;
+  las palabras de su texto también pueden coincidir con una búsqueda.
+- En la ficha se puede elegir una percepción personalizada y agregar categorías
+  a la película. Se admiten palabras o expresiones breves de hasta 30 caracteres.
+- El porcentaje de la tarjeta es un índice simbólico basado en cobertura y peso
+  de la evidencia, no una probabilidad estadística. Etiquetas: alta ≥ 70 %,
+  media ≥ 40 % y baja por debajo de 40 %. Los empates conservan el mismo nivel.
+- La coincidencia textual es literal: no interpreta negaciones ni comprende
+  semánticamente el comentario. Por ejemplo, «no da miedo» contiene «miedo».
 
 ## Requisitos
 
@@ -99,7 +107,8 @@ de reseñas, actualización del ranking y activación de inferencias por opinion
 - `pruebas.py`: validación automatizada de los dos flujos del entregable.
 - `GUIA_VIDEO.md`: guion sugerido para la demostración de 3 a 5 minutos.
 - `assets/posters/README.md`: nombres esperados para los pósters suministrados.
-- `data/resenas_usuario.db`: almacenamiento generado en ejecución (ignorado por Git).
+- `data/resenas_usuario.json`: almacenamiento local generado en ejecución (ignorado por Git).
+- `data/resenas_usuario.db`: archivo antiguo conservado cuando se realiza la migración.
 - `../INFORME_ENTREGA_2.md`: informe listo para anexar a la Entrega 1.
 
 ## Alcance y advertencia

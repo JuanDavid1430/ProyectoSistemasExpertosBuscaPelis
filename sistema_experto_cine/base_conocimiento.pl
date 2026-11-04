@@ -5,15 +5,57 @@
 :- encoding(utf8).
 :- use_module(library(http/json)).
 :- use_module(library(lists)).
-:- use_module(library(persistency)).
+:- dynamic resena_usuario/6, categoria_usuario/2, archivo_datos/1.
 
-% Las reseñas creadas desde la interfaz viven en un almacén Prolog separado.
-% La ruta se adjunta desde Python para no depender del directorio de ejecución.
-:- persistent
-    resena_usuario(pelicula:atom, autor:atom, texto:atom,
-                   percepcion:atom, calificacion:integer, fecha:atom).
+% El archivo JSON contiene datos; nunca se ejecutan términos suministrados por usuarios.
+inicializar_resenas(ArchivoEntrada) :-
+    normalizar_atom_entrada(ArchivoEntrada,Archivo),
+    retractall(resena_usuario(_,_,_,_,_,_)), retractall(categoria_usuario(_,_)),
+    retractall(archivo_datos(_)), assertz(archivo_datos(Archivo)),
+    ( exists_file(Archivo) -> cargar_datos_json(Archivo)
+    ; file_name_extension(Base,_,Archivo), file_name_extension(Base,db,Anterior),
+      ( exists_file(Anterior) -> migrar_resenas_anteriores(Anterior), guardar_datos_json
+      ; true ) ).
 
-inicializar_resenas(Archivo) :- db_attach(Archivo, []).
+cargar_datos_json(Archivo) :-
+    setup_call_cleanup(open(Archivo,read,Entrada,[encoding(utf8)]),
+        json_read_dict(Entrada,Datos,[value_string_as(atom)]),close(Entrada)),
+    get_dict(resenas,Datos,Resenas),get_dict(categorias,Datos,Categorias),
+    maplist(cargar_resena_json,Resenas),maplist(cargar_categoria_json,Categorias).
+cargar_resena_json(D) :-
+    get_dict(pelicula,D,P),get_dict(autor,D,A),get_dict(texto,D,T),
+    get_dict(percepcion,D,C),get_dict(calificacion,D,N),get_dict(fecha,D,F),
+    atom(P),atom(A),atom(T),atom(C),integer(N),atom(F),
+    assertz(resena_usuario(P,A,T,C,N,F)).
+cargar_categoria_json(D) :-
+    get_dict(pelicula,D,P),get_dict(categoria,D,C),atom(P),atom(C),
+    assertz(categoria_usuario(P,C)).
+
+% La migración interpreta únicamente las operaciones concretas del registro antiguo.
+migrar_resenas_anteriores(Archivo) :-
+    setup_call_cleanup(open(Archivo,read,Entrada,[encoding(utf8)]),
+        leer_registro_anterior(Entrada),close(Entrada)).
+leer_registro_anterior(Entrada) :-
+    read_term(Entrada,Termino,[]),
+    ( Termino == end_of_file -> true
+    ; aplicar_registro_anterior(Termino),leer_registro_anterior(Entrada) ).
+aplicar_registro_anterior(created(_)) :- !.
+aplicar_registro_anterior(assert(resena_usuario(P,A,T,C,N,F))) :- !,
+    ground([P,A,T,C,N,F]),atom(P),atom(A),atom(T),atom(C),integer(N),atom(F),
+    assertz(resena_usuario(P,A,T,C,N,F)).
+aplicar_registro_anterior(retract(resena_usuario(P,A,T,C,N,F))) :- !,
+    ground([P,A,T,C,N,F]), retract(resena_usuario(P,A,T,C,N,F)).
+aplicar_registro_anterior(Termino) :- throw(error(registro_antiguo_invalido(Termino),_)).
+
+guardar_datos_json :-
+    archivo_datos(Archivo),atom_concat(Archivo,'.tmp',Temporal),
+    findall(_{pelicula:P,autor:A,texto:T,percepcion:C,calificacion:N,fecha:F},
+        resena_usuario(P,A,T,C,N,F),Resenas),
+    findall(_{pelicula:P,categoria:C},categoria_usuario(P,C),Categorias),
+    setup_call_cleanup(open(Temporal,write,Salida,[encoding(utf8)]),
+        json_write_dict(Salida,_{version:1,resenas:Resenas,categorias:Categorias},[width(100)]),
+        close(Salida)),
+    rename_file(Temporal,Archivo).
 
 % HECHOS DEL DOMINIO
 % pelicula(?Id, ?Titulo, ?Anio).
@@ -36,6 +78,7 @@ pelicula(caso_terror_infantil, 'Caso de prueba: terror infantil', 2026).
 
 % genero(?Pelicula, ?Genero): clasificación editorial.
 genero(el_conjuro, terror). genero(it, terror). genero(annabelle, terror).
+genero(P,G) :- categoria_usuario(P,G).
 genero(toy_story, animacion). genero(toy_story, aventura).
 genero(nemo, animacion). genero(nemo, aventura).
 genero(intensamente, animacion). genero(coco, animacion).
@@ -138,6 +181,14 @@ sinonimo(fantasia, fantasia). sinonimo('fantasía', fantasia).
 sinonimo(paranormal, paranormal). sinonimo(suspenso, suspenso).
 sinonimo(emocionante, emocionante). sinonimo(emocionantes, emocionante).
 sinonimo(emotiva, emocionante). sinonimo(emotivas, emocionante).
+sinonimo(accion, accion). sinonimo('acción', accion).
+sinonimo(scifi, ciencia_ficcion).
+sinonimo(misterio, misterio). sinonimo(crimen, crimen).
+sinonimo(documental, documental). sinonimo(belica, belica). sinonimo('bélica', belica).
+sinonimo(triste, triste). sinonimo(tristes, triste).
+sinonimo(aburrida, aburrida). sinonimo(aburridas, aburrida).
+sinonimo(cringe, cringe). sinonimo(inspiradora, inspiradora).
+sinonimo(C,C) :- resena_usuario(_,_,_,C,_,_).
 
 % titulo_consulta(?Criterio, ?Pelicula, ?Palabras): índice declarativo de títulos.
 % El criterio es un átomo serializable para conservar el contrato JSON con Python.
@@ -208,7 +259,7 @@ orientacion_infantil(P) :- etiqueta_validada(P, infantil).                    % 
 orientacion_infantil(P) :- etiqueta_validada(P, familiar).
 percepcion_recurrente(P, Tema, Total) :-                                      % R11
     pelicula_valida(P), findall(Autor,opinion_validada(P,Autor,Tema),Autores),
-    sort(Autores,Unicos),length(Unicos,Total),Total>=2.
+    sort(Autores,Unicos),length(Unicos,Total),Total>=1.
 apta_para_ninos(P) :-                                                         % R12
     edad_valida(P,Min),Min=<10,orientacion_infantil(P),\+ contenido_de_terror(P).
 coincidencia_genero(P,C,genero,Motivo) :-                                    % R13
@@ -219,7 +270,17 @@ coincidencia_sinopsis(P,C,sinopsis,Motivo) :-                                % R
     tema_validado(P,C),format(atom(Motivo),'Tema indexado de la sinopsis: ~w.',[C]).
 coincidencia_opinion(P,C,opiniones,Motivo) :-                                % R16
     percepcion_recurrente(P,C,Total),
-    format(atom(Motivo),'~d autores independientes coincidieron en ~w.',[Total,C]).
+    format(atom(Motivo),'~d autor(es) indicaron la percepción ~w.',[Total,C]).
+texto_opinion(P,Texto) :- opinion(P,_,Texto,_).
+texto_opinion(P,Texto) :- resena_usuario(P,_,Texto,_,_,_).
+palabras_texto(Texto,Palabras) :-
+    (atom(Texto)->atom_string(Texto,Cadena);Cadena=Texto),
+    string_lower(Cadena,Minusculas),
+    split_string(Minusculas," \t\n\r,.;:!?¿¡()[]{}\"'/-"," \t\n\r",Partes),
+    exclude(=(""),Partes,NoVacias),maplist(atom_string,Palabras,NoVacias).
+coincidencia_texto_opinion(P,C,texto_opinion,Motivo) :-
+    texto_opinion(P,Texto),palabras_texto(Texto,Palabras),memberchk(C,Palabras),
+    format(atom(Motivo),'La palabra ~w aparece en una reseña.',[C]).
 coincidencia_infantil(P,infantil,clasificacion_infantil,Motivo) :-           % R17
     apta_para_ninos(P),edad_minima(P,Min),
     format(atom(Motivo),'Aptitud infantil inferida desde ~d años.',[Min]).
@@ -232,12 +293,14 @@ coincidencia(P,C,F,M) :- coincidencia_genero(P,C,F,M).                        % 
 coincidencia(P,C,F,M) :- coincidencia_etiqueta(P,C,F,M).
 coincidencia(P,C,F,M) :- coincidencia_sinopsis(P,C,F,M).
 coincidencia(P,C,F,M) :- coincidencia_opinion(P,C,F,M).
+coincidencia(P,C,F,M) :- coincidencia_texto_opinion(P,C,F,M).
 coincidencia(P,C,F,M) :- coincidencia_infantil(P,C,F,M).
 coincidencia(P,C,F,M) :- coincidencia_titulo(P,C,F,M).
 puntaje_fuente(titulo,120) :- !.                                              % R19
 puntaje_fuente(clasificacion_infantil,100) :- !.
 puntaje_fuente(genero,95) :- !. puntaje_fuente(etiqueta,85) :- !.
 puntaje_fuente(sinopsis,70) :- !. puntaje_fuente(opiniones,55) :- !.
+puntaje_fuente(texto_opinion,40) :- !.
 puntaje_fuente(_,20).
 prioridad_de_puntaje(Puntaje,alta) :- Puntaje>=85,!.                          % R20
 prioridad_de_puntaje(Puntaje,media) :- Puntaje>=55,!.
@@ -264,18 +327,15 @@ calificacion_promedio(P,Promedio) :-
     ( Calificaciones=[] -> Promedio=0.0
     ; sum_list(Calificaciones,Suma),length(Calificaciones,Total),
       Promedio is round((Suma/Total)*10)/10 ).
-nivel_coincidencia(Solicitados,Cobertura,muy_alta) :-
-    Solicitados>=2,Cobertura=:=Solicitados,!.
-nivel_coincidencia(Solicitados,Cobertura,alta) :-
-    Solicitados>=1,Cobertura=:=Solicitados,!.
-nivel_coincidencia(_,Cobertura,parcial) :- Cobertura>0,!.
-nivel_coincidencia(_,_,insuficiente).
+nivel_por_indice(Indice,alta) :- Indice>=70,!.
+nivel_por_indice(Indice,media) :- Indice>=40,!.
+nivel_por_indice(_,baja).
 resultado_para(Criterios,P,                                                   % R24
     _{id:P,titulo:Titulo,anio:Anio,edad_minima:Min,generos:Generos,
       sinopsis:Resumen,prioridad:Prioridad,puntaje:PuntajePrincipal,
       puntaje_total:PuntajeTotal,puntaje_ranking:PuntajeRanking,
       calificacion_promedio:Calificacion,cobertura:Cobertura,
-      criterios_solicitados:Solicitados,nivel_coincidencia:Nivel,
+      criterios_solicitados:Solicitados,nivel_coincidencia:Nivel,indice_coincidencia:Indice,
       origen_principal:Fuente,justificacion_principal:Motivo,evidencias:Evidencias}) :-
     pelicula(P,Titulo,Anio),edad_valida(P,Min),sinopsis(P,Resumen),
     findall(G,genero_validado(P,G),GRaw),sort(GRaw,Generos),
@@ -289,13 +349,15 @@ resultado_para(Criterios,P,                                                   % 
     calificacion_promedio(P,Calificacion),
     BonusCalificacion is round(Calificacion*2),
     PuntajeRanking is PuntajeTotal*100+BonusCalificacion,
-    nivel_coincidencia(Solicitados,Cobertura,Nivel),
+    Indice is round(PuntajeTotal*100/(Solicitados*120)),
+    nivel_por_indice(Indice,Nivel),
     prioridad_de_puntaje(PuntajePrincipal,Prioridad),
     maplist(evidencia_dict,EUnicas,Evidencias).
 buscar_peliculas(Criterios,Edad,Resultados) :-                                % R25
     is_list(Criterios),integer(Edad),Edad>= -1,
     findall(P,(member(C,Criterios),coincidencia(P,C,_,_),
-                criterio_admisible(P,C),edad_habilitada(P,Edad)),Duplicados),
+                criterio_admisible(P,C),edad_habilitada(P,Edad),
+                (memberchk(infantil,Criterios)->apta_para_ninos(P);true)),Duplicados),
     sort(Duplicados,Unicos),maplist(resultado_para(Criterios),Unicos,SinOrden),
     findall(Orden-P,(member(R,SinOrden),get_dict(id,R,P),
         get_dict(puntaje_ranking,R,Puntos),Orden is -Puntos),Pares),
@@ -306,13 +368,18 @@ contiene_secuencia(Secuencia,Palabras) :-
 consulta_a_criterios(Consulta,Criterios) :-                                   % R26
     (atom(Consulta)->atom_string(Consulta,Texto);string(Consulta)->Texto=Consulta;Texto=""),
     string_lower(Texto,Minusculas),
-    split_string(Minusculas," \t\n\r,.;:!?¿¡"," \t\n\r",Palabras),
-    maplist(atom_string,Atoms,Palabras),
-    findall(C,(member(Atom,Atoms),sinonimo(Atom,C)),CriteriosTematicos),
+    palabras_texto(Minusculas,Atoms),
+    findall(C,(member(Atom,Atoms),sinonimo(Atom,C)),CriteriosSinonimos),
+    findall(C,((categoria_usuario(_,C);resena_usuario(_,_,_,C,_,_)),
+               atomic_list_concat(Secuencia,'_',C),contiene_secuencia(Secuencia,Atoms)),
+            CriteriosCategorias),
+    findall(C,(member(C,Atoms),\+sinonimo(C,_),\+palabra_comun(C),
+               texto_opinion(P,_),coincidencia_texto_opinion(P,C,_,_)),CriteriosTexto),
     findall(CT,(titulo_consulta(CT,_,Secuencia),
                 contiene_secuencia(Secuencia,Atoms)),CriteriosTitulo),
-    append(CriteriosTematicos,CriteriosTitulo,Todos),
+    append([CriteriosSinonimos,CriteriosCategorias,CriteriosTexto,CriteriosTitulo],Todos),
     sort(Todos,Criterios).
+palabra_comun(C) :- memberchk(C,[pelicula,peliculas,'película','películas',una,un,el,la,los,las,de,del,para,por,que,con,y,en,es,son,me,da,dan,muy,esta,este,lo,al,a,ser,ver,quiero,busco]).
 estado_consulta(Consulta,_,_,consulta_vacia) :-                               % R27
     (Consulta=="";Consulta==''),!.
 estado_consulta(_,[],_,criterio_no_reconocido) :- !.
@@ -320,7 +387,6 @@ estado_consulta(_,_,[],sin_resultados) :- !.
 estado_consulta(_,_,_,ok).
 criterio_admisible(P,C) :- titulo_consulta(C,P,_),!.                          % R29
 criterio_admisible(P,infantil) :- !,apta_para_ninos(P).
-criterio_admisible(P,terror) :- !,genero_validado(P,terror).
 criterio_admisible(_,_).
 
 % ENTREGABLE 2: EXPLICABILIDAD Y RECOMENDACIÓN (R30-R45)
@@ -329,12 +395,13 @@ regla_catalogo(r02,'Validación de género','El género consultado está registr
 regla_catalogo(r03,'Validación de etiqueta','La etiqueta consultada está registrada para la película.').
 regla_catalogo(r04,'Validación temática','La sinopsis posee el tema indexado consultado.').
 regla_catalogo(r05,'Validación etaria','La edad mínima es un entero válido y no negativo.').
-regla_catalogo(r11,'Percepción recurrente','Dos o más autores independientes comparten la percepción.').
+regla_catalogo(r11,'Percepción registrada','Al menos un autor indicó la percepción.').
 regla_catalogo(r12,'Aptitud infantil','Combina edad, orientación familiar y ausencia de terror.').
 regla_catalogo(r13,'Coincidencia por género','Activa evidencia editorial de género.').
 regla_catalogo(r14,'Coincidencia por etiqueta','Activa evidencia editorial de etiqueta.').
 regla_catalogo(r15,'Coincidencia por sinopsis','Activa evidencia temática de sinopsis.').
-regla_catalogo(r16,'Coincidencia por opiniones','Activa evidencia cuando la percepción es recurrente.').
+regla_catalogo(r16,'Coincidencia por opiniones','Una o más reseñas respaldan la percepción.').
+regla_catalogo(r56,'Palabra en reseña','La palabra buscada aparece en el texto de una reseña.').
 regla_catalogo(r17,'Coincidencia infantil','Activa la conclusión de aptitud infantil.').
 regla_catalogo(r18,'Coincidencia por título','El texto ingresado coincide con un título indexado del catálogo.').
 regla_catalogo(r19,'Peso de la fuente','Asigna prioridad según la confiabilidad de la fuente.').
@@ -344,6 +411,7 @@ regla_fuente(genero,r02). regla_fuente(genero,r13).
 regla_fuente(etiqueta,r03). regla_fuente(etiqueta,r14).
 regla_fuente(sinopsis,r04). regla_fuente(sinopsis,r15).
 regla_fuente(opiniones,r11). regla_fuente(opiniones,r16).
+regla_fuente(texto_opinion,r56).
 regla_fuente(clasificacion_infantil,r05).
 regla_fuente(clasificacion_infantil,r12).
 regla_fuente(clasificacion_infantil,r17).
@@ -360,7 +428,9 @@ hecho_evidencia(P,C,etiqueta,Texto) :- format(atom(Texto),'etiqueta(~w, ~w)',[P,
 hecho_evidencia(P,C,sinopsis,Texto) :- format(atom(Texto),'tema_sinopsis(~w, ~w)',[P,C]).
 hecho_evidencia(P,C,opiniones,Texto) :-
     findall(A,opinion_validada(P,A,C),AutoresRaw),sort(AutoresRaw,Autores),
-    format(atom(Texto),'opiniones_recurrentes(~w, ~w, ~w)',[P,C,Autores]).
+    format(atom(Texto),'percepciones_registradas(~w, ~w, ~w)',[P,C,Autores]).
+hecho_evidencia(P,C,texto_opinion,Texto) :-
+    format(atom(Texto),'palabra_en_resena(~w, ~w)',[P,C]).
 hecho_evidencia(P,infantil,clasificacion_infantil,Texto) :-
     edad_minima(P,Min),format(atom(Texto),
     'edad_minima(~w, ~d) y orientación infantil sin terror',[P,Min]).
@@ -487,6 +557,31 @@ percepcion_permitida(emocionante).
 percepcion_permitida(suspenso).
 percepcion_permitida(romance).
 percepcion_permitida(familiar).
+percepcion_permitida(triste).
+percepcion_permitida(aburrida).
+percepcion_permitida(cringe).
+percepcion_permitida(inspiradora).
+percepcion_permitida(misterio).
+percepcion_permitida(accion).
+percepcion_permitida(fantasia).
+% Una palabra personalizada permite extender el vocabulario sin modificar código.
+percepcion_permitida(P) :- etiqueta_personalizada(P).
+
+etiqueta_personalizada(P) :-
+    atom(P),atom_length(P,L),L>=3,L=<30,
+    atom_chars(P,Chars),maplist(letra_etiqueta,Chars).
+letra_etiqueta(C) :- char_type(C,alpha),downcase_atom(C,C).
+letra_etiqueta('_').
+
+agregar_categoria_json(Identificador,Entrada,Json) :-
+    ground([Identificador,Entrada]),normalizar_atom_entrada(Identificador,P),
+    pelicula_valida(P),normalizar_atom_entrada(Entrada,Categoria),
+    etiqueta_personalizada(Categoria),
+    ( genero_validado(P,Categoria) -> Estado=existente
+    ; assertz(categoria_usuario(P,Categoria)),
+      catch(guardar_datos_json,E,(retract(categoria_usuario(P,Categoria)),throw(E))),
+      Estado=agregada ),
+    atom_json_dict(Json,_{ok:true,estado:Estado,categoria:Categoria},[]).
 
 resena_dict(P,_{autor:Autor,texto:Texto,percepcion:Percepcion,
                 calificacion:0,fecha:'Base académica',origen:base}) :-
@@ -530,12 +625,12 @@ agregar_resena_json(Identificador,AutorEntrada,TextoEntrada,
     normalizar_atom_entrada(PercepcionEntrada,Percepcion),
     percepcion_permitida(Percepcion),integer(Calificacion),between(1,5,Calificacion),
     get_time(Instante),format_time(atom(Fecha),'%Y-%m-%dT%H:%M:%S%:z',Instante),
-    assert_resena_usuario(P,Autor,Texto,Percepcion,Calificacion,Fecha),
+    assertz(resena_usuario(P,Autor,Texto,Percepcion,Calificacion,Fecha)),
+    catch(guardar_datos_json,E,
+      (retract(resena_usuario(P,Autor,Texto,Percepcion,Calificacion,Fecha)),throw(E))),
     autores_percepcion(P,Percepcion,AutoresPercepcion),
-    ( AutoresPercepcion>=2 -> Activa=true,
-      Mensaje='La percepción ya participa en la inferencia por recurrencia.'
-    ; Activa=false,
-      Mensaje='La reseña fue guardada; se requieren dos autores para activar esta percepción.' ),
+    Activa=true,
+    Mensaje='Reseña guardada. Su percepción y palabras ya pueden aportar evidencia.',
     listar_resenas(P,Resenas),length(Resenas,Total),
     calificacion_promedio(P,Promedio),
     atom_json_dict(Json,_{ok:true,pelicula:P,total_resenas:Total,

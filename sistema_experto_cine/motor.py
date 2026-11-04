@@ -41,7 +41,7 @@ class MotorCine:
         self.ruta_datos = (
             Path(ruta_datos)
             if ruta_datos
-            else Path(__file__).with_name("data") / "resenas_usuario.db"
+            else Path(__file__).with_name("data") / "resenas_usuario.json"
         )
         self.ruta_datos.parent.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()
@@ -121,7 +121,7 @@ class MotorCine:
         pelicula_id = pelicula_id.strip() if isinstance(pelicula_id, str) else ""
         autor = " ".join(autor.split()) if isinstance(autor, str) else ""
         texto = " ".join(texto.split()) if isinstance(texto, str) else ""
-        percepcion = percepcion.strip() if isinstance(percepcion, str) else ""
+        percepcion = self._normalizar_etiqueta(percepcion)
         if not pelicula_id:
             raise ValueError("Selecciona una película válida.")
         if not 2 <= len(autor) <= 60:
@@ -141,6 +141,25 @@ class MotorCine:
         )
         return self._consultar_json(objetivo)
 
+    @staticmethod
+    def _normalizar_etiqueta(valor: str) -> str:
+        if not isinstance(valor, str):
+            raise ValueError("La categoría o percepción debe ser texto.")
+        etiqueta = "_".join(valor.lower().strip().split())
+        if not 3 <= len(etiqueta) <= 30 or not all(
+            caracter.isalpha() or caracter == "_" for caracter in etiqueta
+        ):
+            raise ValueError("Usa entre 3 y 30 letras, con espacios opcionales.")
+        return etiqueta
+
+    def agregar_categoria(self, pelicula_id: str, categoria: str) -> dict[str, Any]:
+        """Asocia una categoría a la película y la guarda en el almacén local."""
+        if not isinstance(pelicula_id, str) or not pelicula_id.strip():
+            raise ValueError("Selecciona una película válida.")
+        identificador = json.dumps(pelicula_id.strip(), ensure_ascii=False)
+        etiqueta = json.dumps(self._normalizar_etiqueta(categoria), ensure_ascii=False)
+        return self._consultar_json(f"agregar_categoria_json({identificador}, {etiqueta}, Json)")
+
     def comprobar_conexion(self) -> bool:
         """Prueba mínima de lectura, sin duplicar conocimiento del dominio."""
         with self._lock:
@@ -150,7 +169,6 @@ class MotorCine:
         """Sincroniza y libera el archivo persistente (útil en pruebas)."""
         with self._lock:
             if not self._cerrado:
-                list(self.prolog.query("db_detach", maxresult=1))
                 self._cerrado = True
 
     def __enter__(self) -> "MotorCine":

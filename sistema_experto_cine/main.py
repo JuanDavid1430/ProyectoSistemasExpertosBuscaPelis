@@ -509,7 +509,7 @@ def tarjeta_pelicula(pelicula: dict, puesto: int) -> str:
         </div>
         <div class="film-title">{titulo}</div>
         <div class="film-meta">{pelicula['anio']} · {pelicula['edad_minima']}+ ·
-          <span class="score">{pelicula['puntaje_total']} pts</span></div>
+          <span class="score">{pelicula['indice_coincidencia']}% de coincidencia</span></div>
         <div class="film-genres" title="{generos}">{generos}</div>
         <div class="reason" title="{motivo}">{motivo}</div>
       </div>
@@ -531,7 +531,7 @@ def mostrar_resultados(datos: dict) -> None:
     st.markdown(
         f'''<div class="section-heading">
         <div><h3>Cartelera recomendada</h3>
-        <p>Abre una película para conocer su historia, explicación y reseñas.</p></div>
+        <p>El porcentaje es un índice de coincidencia simbólico, no una probabilidad estadística.</p></div>
         <div class="section-count">{len(resultados)} PELÍCULAS PARA TI</div>
         </div>''',
         unsafe_allow_html=True,
@@ -740,8 +740,8 @@ def mostrar_ficha(pelicula_id: str) -> None:
 
     st.markdown("### Agregar una reseña")
     st.caption(
-        "La calificación actualiza el orden de resultados. Una percepción compartida "
-        "por dos autores distintos se convierte en evidencia para futuras búsquedas."
+        "La calificación ayuda a desempatar. La percepción y las palabras de la reseña "
+        "pueden aportar evidencia desde la primera opinión."
     )
     percepciones = {
         "divertida": "Divertida / alegre",
@@ -750,6 +750,14 @@ def mostrar_ficha(pelicula_id: str) -> None:
         "suspenso": "Con suspenso",
         "romance": "Romántica",
         "familiar": "Familiar",
+        "triste": "Triste",
+        "aburrida": "Aburrida",
+        "cringe": "Cringe / vergüenza ajena",
+        "inspiradora": "Inspiradora",
+        "misterio": "Misteriosa",
+        "accion": "Acción",
+        "fantasia": "Fantasía",
+        "otra": "Otra percepción…",
     }
     with st.form(f"nueva_resena_{pelicula_id}", clear_on_submit=True):
         autor = st.text_input(
@@ -771,6 +779,11 @@ def mostrar_ficha(pelicula_id: str) -> None:
             format_func=percepciones.get,
             key=f"percepcion_{pelicula_id}",
         )
+        percepcion_personalizada = st.text_input(
+            "Otra percepción (opcional)", max_chars=30,
+            placeholder="Ej.: nostálgica; se usa al elegir Otra percepción",
+            key=f"otra_percepcion_{pelicula_id}",
+        )
         comentario = st.text_area(
             "Comentario",
             max_chars=600,
@@ -790,7 +803,7 @@ def mostrar_ficha(pelicula_id: str) -> None:
                 pelicula_id,
                 autor,
                 comentario,
-                percepcion,
+                percepcion_personalizada if percepcion == "otra" else percepcion,
                 int(calificacion),
             )
             st.session_state.mensaje_resena = respuesta["mensaje"]
@@ -801,6 +814,26 @@ def mostrar_ficha(pelicula_id: str) -> None:
             st.rerun()
         except Exception as exc:
             st.error(f"No se pudo guardar la reseña: {exc}")
+
+    with st.expander("Agregar una categoría a esta película"):
+        st.caption("Agrega un género o categoría para ampliar las búsquedas del catálogo.")
+        with st.form(f"nueva_categoria_{pelicula_id}", clear_on_submit=True):
+            categoria = st.text_input("Categoría", max_chars=30, placeholder="Ej.: misterio")
+            agregar_categoria = st.form_submit_button("Agregar categoría")
+        if agregar_categoria:
+            try:
+                respuesta_categoria = motor.agregar_categoria(pelicula_id, categoria)
+                st.session_state.mensaje_resena = (
+                    "Categoría agregada." if respuesta_categoria["estado"] == "agregada"
+                    else "La película ya tiene esa categoría."
+                )
+                st.session_state.respuesta = motor.buscar(
+                    st.session_state.get("consulta_actual", "películas divertidas"),
+                    st.session_state.get("edad_actual"),
+                )
+                st.rerun()
+            except Exception as exc:
+                st.error(f"No se pudo agregar la categoría: {exc}")
 
     if st.button("Cerrar ficha", key=f"cerrar_{pelicula_id}", use_container_width=True):
         st.session_state.pelicula_seleccionada = None

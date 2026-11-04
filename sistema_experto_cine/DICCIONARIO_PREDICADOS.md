@@ -34,24 +34,25 @@ puede usarse como entrada o salida. La interfaz invoca únicamente
 | `opinion_validada/3` | `?P, ?Autor, ?Tema` | Unifica opiniones iniciales y reseñas persistentes. |
 | `contenido_de_terror/1` | `?P` | Detecta el género que activa una exclusión infantil. |
 | `orientacion_infantil/1` | `?P` | Reconoce etiquetas infantil o familiar. |
-| `percepcion_recurrente/3` | `?P, +Tema, -Total` | Exige dos autores distintos para usar opiniones como evidencia. |
+| `percepcion_recurrente/3` | `?P, +Tema, -Total` | Cuenta autores distintos y acepta una o más opiniones. |
 | `apta_para_ninos/1` | `?P` | Edad ≤ 10, orientación infantil y `\+ contenido_de_terror(P)`. |
 | `coincidencia_genero/4` | `?P, +C, -Fuente, -Motivo` | Produce evidencia de género. |
 | `coincidencia_etiqueta/4` | `?P, +C, -Fuente, -Motivo` | Produce evidencia de etiqueta. |
 | `coincidencia_sinopsis/4` | `?P, +C, -Fuente, -Motivo` | Produce evidencia temática. |
-| `coincidencia_opinion/4` | `?P, +C, -Fuente, -Motivo` | Produce evidencia de percepción recurrente. |
+| `coincidencia_opinion/4` | `?P, +C, -Fuente, -Motivo` | Produce evidencia a partir de una o más percepciones. |
+| `coincidencia_texto_opinion/4` | `?P, +C, -Fuente, -Motivo` | Produce evidencia por coincidencia literal de una palabra en una reseña. |
 | `coincidencia_infantil/4` | `?P, +infantil, -Fuente, -Motivo` | Produce evidencia de aptitud infantil. |
 | `coincidencia_titulo/4` | `?P, +C, -Fuente, -Motivo` | Produce evidencia de coincidencia directa con un título. |
-| `coincidencia/4` | `?P, +C, -Fuente, -Motivo` | Unifica las seis fuentes posibles. |
+| `coincidencia/4` | `?P, +C, -Fuente, -Motivo` | Unifica las fuentes editoriales, opiniones, texto y título. |
 | `criterio_admisible/2` | `+P, +C` | Aplica filtros duros para `infantil` y `terror`. |
-| `puntaje_fuente/2` | `+Fuente, -Puntos` | Peso: título 120, infantil 100, género 95, etiqueta 85, sinopsis 70, opiniones 55. |
+| `puntaje_fuente/2` | `+Fuente, -Puntos` | Peso: título 120, infantil 100, género 95, etiqueta 85, sinopsis 70, opiniones 55, texto 40. |
 | `prioridad_de_puntaje/2` | `+Puntos, -Nivel` | Clasifica prioridad alta, media o baja. |
 | `evidencia/3` | `?P, +C, -Termino` | Empaqueta criterio, fuente, motivo y puntaje. |
 | `mejor_evidencia/2` | `+Lista, -Mejor` | Selecciona el elemento de mayor peso. |
 | `mejor_aux/3` | `+Resto, +Acumulada, -Mejor` | Recorrido estructural de selección. |
 | `mejor_evidencia_criterio/3` | `+P, +C, -Mejor` | Impide puntuar dos veces un mismo criterio. |
 | `suma_puntajes/2` | `+Evidencias, -Total` | Suma el mejor aporte por criterio. |
-| `nivel_coincidencia/3` | `+Solicitados, +Cobertura, -Nivel` | Deriva `muy_alta`, `alta`, `parcial` o `insuficiente`. |
+| `nivel_por_indice/2` | `+Indice, -Nivel` | Clasifica el índice simbólico: alta ≥ 70, media ≥ 40 y baja en los demás casos. |
 | `evidencia_dict/2` | `+Termino, -Dict` | Convierte evidencia a estructura exportable. |
 | `calificacion_promedio/2` | `+P, -Promedio` | Calcula el promedio de las calificaciones aportadas por usuarios. |
 | `resultado_para/3` | `+Criterios, +P, -Dict` | Construye una hipótesis con cobertura, puntaje y valoración. |
@@ -95,8 +96,11 @@ puede usarse como entrada o salida. La interfaz invoca únicamente
 
 | Predicado/aridad | Modo | Función |
 |---|---|---|
-| `resena_usuario/6` | `?P, ?Autor, ?Texto, ?Percepcion, ?Calificacion, ?Fecha` | Hecho persistente generado por `library(persistency)`. |
-| `inicializar_resenas/1` | `+Archivo` | Adjunta el almacén local indicado por Python. |
+| `resena_usuario/6` | `?P, ?Autor, ?Texto, ?Percepcion, ?Calificacion, ?Fecha` | Reseña cargada en memoria desde el almacén JSON. |
+| `categoria_usuario/2` | `?P, ?Categoria` | Categoría añadida por el usuario y almacenada en JSON. |
+| `inicializar_resenas/1` | `+Archivo` | Carga el JSON o migra el archivo `.db` anterior si el JSON no existe. |
+| `guardar_datos_json/0` | — | Guarda reseñas y categorías en JSON mediante un archivo temporal. |
+| `agregar_categoria_json/3` | `+Id, +Categoria, -Json` | Valida y asocia una categoría a una película. |
 | `normalizar_atom_entrada/2` | `+Entrada, -Atom` | Acepta texto o átomo y produce una clave validable. |
 | `texto_limpio/5` | `+Entrada, +Min, +Max, -Texto, -Atom` | Normaliza espacios y valida la longitud de una captura. |
 | `percepcion_permitida/1` | `?Percepcion` | Vocabulario admitido para nuevas reseñas. |
@@ -108,9 +112,9 @@ puede usarse como entrada o salida. La interfaz invoca únicamente
 | `agregar_resena_json/6` | `+Id, +Autor, +Texto, +Percepcion, +Calificacion, -Json` | Valida, persiste y reporta el impacto inferencial de una reseña. |
 
 La calificación promedio se utiliza únicamente como desempate entre hipótesis
-con el mismo puntaje simbólico. Las opiniones no alteran géneros ni etiquetas:
-una percepción participa como evidencia solo cuando existen dos autores
-distintos, manteniendo la regla de recurrencia del sistema experto.
+con el mismo puntaje simbólico. Una sola reseña aporta evidencia por percepción,
+y sus palabras aportan evidencia literal de menor peso. Esta coincidencia no
+interpreta negaciones ni equivale a un análisis semántico del comentario.
 
 ## Consultas demostrativas
 
