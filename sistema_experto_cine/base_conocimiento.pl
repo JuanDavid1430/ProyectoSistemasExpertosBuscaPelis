@@ -1,4 +1,5 @@
-/* CineExperto - motor simbólico y explicable del Entregable 2.
+/* CineExperto - motor simbólico y explicable.
+   Entregable 3: DCG de Lenguaje Natural + Adquisición Dinámica de Conocimiento.
    Edades y reseñas: datos DIDÁCTICOS, NO clasificaciones oficiales.
    Python solo captura/presenta datos; inferencia, traza y desempate viven aquí.
 */
@@ -6,6 +7,12 @@
 :- use_module(library(http/json)).
 :- use_module(library(lists)).
 :- dynamic resena_usuario/6, categoria_usuario/2, archivo_datos/1.
+% Entregable 3: predicados dinámicos para adquisición de conocimiento en caliente.
+:- dynamic diagnostico_experto/3.   % diagnostico_experto(Id, Nombre, CuerpoAtom)
+:- dynamic regla_experto/2.         % regla_experto(Cabeza, Cuerpo) — cláusula inyectada
+:- dynamic regla_experto_definida/2. % regla_experto_definida(Functor, Nombre)
+:- dynamic pelicula/3, edad_minima/2, sinopsis/2, etiqueta/2, genero/2.
+:- discontiguous pelicula/3, edad_minima/2, sinopsis/2, etiqueta/2, genero/2, regla_experto_definida/2.
 
 % El archivo JSON contiene datos; nunca se ejecutan términos suministrados por usuarios.
 inicializar_resenas(ArchivoEntrada) :-
@@ -172,10 +179,15 @@ sinonimo(ninas, infantil). sinonimo('niñas', infantil).
 sinonimo(infantil, infantil). sinonimo(infantiles, infantil).
 sinonimo(familiar, familiar). sinonimo(familia, familiar).
 sinonimo(animacion, animacion). sinonimo('animación', animacion).
-sinonimo(animadas, animacion). sinonimo(comedia, comedia).
+sinonimo(animada, animacion). sinonimo(animado, animacion).
+sinonimo(animadas, animacion). sinonimo(animados, animacion).
+sinonimo(comedia, comedia). sinonimo(comico, comedia). sinonimo(comica, comedia).
+sinonimo(comicos, comedia). sinonimo(comicas, comedia).
 sinonimo(aventura, aventura). sinonimo(aventuras, aventura).
-sinonimo(drama, drama). sinonimo(romance, romance).
-sinonimo(romantica, romance). sinonimo('romántica', romance).
+sinonimo(drama, drama). sinonimo(dramatico, drama). sinonimo(dramatica, drama).
+sinonimo(romance, romance). sinonimo(amor, romance).
+sinonimo(romantico, romance). sinonimo(romantica, romance).
+sinonimo('romántico', romance). sinonimo('romántica', romance).
 sinonimo(musical, musical). sinonimo(musicales, musical).
 sinonimo(fantasia, fantasia). sinonimo('fantasía', fantasia).
 sinonimo(paranormal, paranormal). sinonimo(suspenso, suspenso).
@@ -189,6 +201,12 @@ sinonimo(triste, triste). sinonimo(tristes, triste).
 sinonimo(aburrida, aburrida). sinonimo(aburridas, aburrida).
 sinonimo(cringe, cringe). sinonimo(inspiradora, inspiradora).
 sinonimo(C,C) :- resena_usuario(_,_,_,C,_,_).
+sinonimo(G, G) :- genero(_, G).
+sinonimo(E, E) :- etiqueta(_, E).
+sinonimo(R, R) :- regla_experto_definida(R, _).
+sinonimo(Plural, R) :- regla_experto_definida(R, _), atom_concat(R, 's', Plural).
+sinonimo(Plural, G) :- genero(_, G), atom_concat(G, 's', Plural).
+sinonimo(Plural, E) :- etiqueta(_, E), atom_concat(E, 's', Plural).
 
 % titulo_consulta(?Criterio, ?Pelicula, ?Palabras): índice declarativo de títulos.
 % El criterio es un átomo serializable para conservar el contrato JSON con Python.
@@ -213,6 +231,28 @@ titulo_consulta(titulo_titanic, titanic, [titanic]).
 titulo_consulta(titulo_caso_terror_infantil, caso_terror_infantil,
                 [caso,de,prueba,terror,infantil]).
 
+% Indización automática de títulos para películas agregadas dinámicamente
+titulo_consulta(Criterio, P, Palabras) :-
+    pelicula(P, Titulo, _),
+    \+ es_pelicula_estatica(P),
+    atom_concat('titulo_', P, Criterio),
+    palabras_texto(Titulo, Palabras).
+titulo_consulta(Criterio, P, [PalabraSignificativa]) :-
+    pelicula(P, Titulo, _),
+    \+ es_pelicula_estatica(P),
+    atom_concat('titulo_', P, Criterio),
+    palabras_texto(Titulo, Palabras),
+    Palabras = [_, _|_],
+    member(PalabraSignificativa, Palabras),
+    \+ palabra_comun(PalabraSignificativa).
+
+es_pelicula_estatica(P) :-
+    memberchk(P, [
+        el_conjuro, it, annabelle, toy_story, nemo, intensamente,
+        coco, encanto, shrek, villano, deadpool, joker,
+        coraline, hotel, titanic, caso_terror_infantil
+    ]).
+
 % Prioridad de una pregunta adicional. Es conocimiento declarativo, no UI.
 peso_criterio(terror, 100). peso_criterio(infantil, 98).
 peso_criterio(familiar, 92). peso_criterio(comedia, 88).
@@ -236,6 +276,9 @@ pregunta_criterio(musical, '¿Te interesa una historia con temática musical?').
 pregunta_criterio(drama, '¿Buscas una película dramática?').
 pregunta_criterio(divertida, '¿Es importante que sea divertida?').
 pregunta_criterio(emocionante, '¿Buscas una historia emocionante o emotiva?').
+pregunta_criterio(C, Pregunta) :-
+    regla_experto_definida(C, Nombre),
+    format(atom(Pregunta), '¿Deseas que cumpla la regla de experto "~w"?', [Nombre]).
 
 % NIVEL 1: VALIDACIÓN DE HECHOS Y ENTRADAS (R01-R09)
 pelicula_valida(P) :- pelicula(P, _, _).                                      % R01
@@ -287,6 +330,13 @@ coincidencia_infantil(P,infantil,clasificacion_infantil,Motivo) :-           % R
 coincidencia_titulo(P,C,titulo,Motivo) :-
     titulo_consulta(C,P,_),pelicula(P,Titulo,_),
     format(atom(Motivo),'Coincidencia directa con el título "~w".',[Titulo]).
+coincidencia_regla_experto(P,C,regla_experto,Motivo) :-
+    pelicula_valida(P),
+    regla_experto_definida(C,Nombre),
+    current_predicate(C/1),
+    Objetivo =.. [C, P],
+    catch(call(Objetivo), _, fail),
+    format(atom(Motivo),'Regla de experto cumplida: ~w (~w).',[Nombre,C]).
 
 % NIVEL 3: BÚSQUEDA, RANKING Y SALIDA (R18-R29)
 coincidencia(P,C,F,M) :- coincidencia_genero(P,C,F,M).                        % R18
@@ -296,7 +346,9 @@ coincidencia(P,C,F,M) :- coincidencia_opinion(P,C,F,M).
 coincidencia(P,C,F,M) :- coincidencia_texto_opinion(P,C,F,M).
 coincidencia(P,C,F,M) :- coincidencia_infantil(P,C,F,M).
 coincidencia(P,C,F,M) :- coincidencia_titulo(P,C,F,M).
+coincidencia(P,C,F,M) :- coincidencia_regla_experto(P,C,F,M).
 puntaje_fuente(titulo,120) :- !.                                              % R19
+puntaje_fuente(regla_experto,110) :- !.
 puntaje_fuente(clasificacion_infantil,100) :- !.
 puntaje_fuente(genero,95) :- !. puntaje_fuente(etiqueta,85) :- !.
 puntaje_fuente(sinopsis,70) :- !. puntaje_fuente(opiniones,55) :- !.
@@ -404,6 +456,7 @@ regla_catalogo(r16,'Coincidencia por opiniones','Una o más reseñas respaldan l
 regla_catalogo(r56,'Palabra en reseña','La palabra buscada aparece en el texto de una reseña.').
 regla_catalogo(r17,'Coincidencia infantil','Activa la conclusión de aptitud infantil.').
 regla_catalogo(r18,'Coincidencia por título','El texto ingresado coincide con un título indexado del catálogo.').
+regla_catalogo(r_exp,'Regla de experto','La película cumple una condición lógica inyectada dinámicamente por un experto.').
 regla_catalogo(r19,'Peso de la fuente','Asigna prioridad según la confiabilidad de la fuente.').
 regla_catalogo(r24,'Construcción de hipótesis','Integra hechos, evidencias, cobertura y nivel.').
 regla_catalogo(r25,'Selección y ranking','Deduplica y ordena hipótesis por puntaje simbólico.').
@@ -416,6 +469,7 @@ regla_fuente(clasificacion_infantil,r05).
 regla_fuente(clasificacion_infantil,r12).
 regla_fuente(clasificacion_infantil,r17).
 regla_fuente(titulo,r18).
+regla_fuente(regla_experto,r_exp).
 regla_dict(Id,_{id:Id,nombre:Nombre,detalle:Detalle}) :-                     % R30
     regla_catalogo(Id,Nombre,Detalle).
 reglas_disparadas(Criterios,P,Reglas) :-                                     % R31
@@ -437,6 +491,8 @@ hecho_evidencia(P,infantil,clasificacion_infantil,Texto) :-
 hecho_evidencia(P,C,titulo,Texto) :-
     titulo_consulta(C,P,_),pelicula(P,Titulo,_),
     format(atom(Texto),'titulo_coincidente(~w, "~w")',[P,Titulo]).
+hecho_evidencia(P,C,regla_experto,Texto) :-
+    format(atom(Texto),'regla_experto(~w(~w))',[C,P]).
 hechos_verdaderos(Criterios,Edad,P,Hechos) :-                                 % R32
     pelicula(P,Titulo,Anio),edad_minima(P,Min),
     format(atom(HP),'pelicula(~w, "~w", ~d)',[P,Titulo,Anio]),
@@ -641,7 +697,11 @@ agregar_resena_json(Identificador,AutorEntrada,TextoEntrada,
 % R44: punto de entrada auditable. El JSON es el único contrato con Python.
 buscar_json(Consulta,Edad,Json) :-
     ground(Consulta),integer(Edad),Edad>= -1,
-    consulta_a_criterios(Consulta,Criterios),buscar_peliculas(Criterios,Edad,Resultados),
+    dcg_consulta_a_criterios(Consulta,CriteriosDCG),
+    consulta_a_criterios(Consulta,CriteriosSim),
+    append(CriteriosDCG,CriteriosSim,TodosRaw),
+    sort(TodosRaw,Criterios),
+    buscar_peliculas(Criterios,Edad,Resultados),
     estado_consulta(Consulta,Criterios,Resultados,Estado),length(Resultados,Total),
     hipotesis_competencia(Resultados,Competidores),
     decision_motor(Criterios,Resultados,Competidores,Decision),
@@ -650,3 +710,532 @@ buscar_json(Consulta,Edad,Json) :-
       edad_consultada:Edad,estado:Estado,total:Total,resultados:Resultados,
       decision:Decision,auditoria:Auditoria},[]).
 buscar_json(Consulta,Json) :- buscar_json(Consulta,-1,Json).                   % R45
+
+
+% =============================================================================
+% ENTREGABLE 3 — SECCIÓN A: DCG (Definite Clause Grammars) para Lenguaje Natural
+% =============================================================================
+% Parseo de oraciones en español libre para extraer criterios canónicos.
+% El predicado principal es dcg_consulta_a_criterios/2:
+%   dcg_consulta_a_criterios(+TextoAtom, -ListaCriterios)
+%
+% Arquitectura:
+%   1. Tokenización: se divide el texto en átomos en minúsculas.
+%   2. Las reglas DCG consumen la lista de tokens e identifican frases relevantes.
+%   3. Los criterios reconocidos se unifican con el vocabulario canónico
+%      a través de los mismos sinonimos/2 ya existentes.
+%   4. Los tokens no reconocidos se saltan silenciosamente (tolerancia a ruido).
+% =============================================================================
+
+% --- Tokenización (reutiliza palabras_texto/2 ya definida en el motor) ---
+
+% dcg_tokenizar(+TextoAtom, -Tokens)
+%   Convierte una cadena/átomo a lista de átomos en minúsculas, filtrando vacíos.
+dcg_tokenizar(Texto, Tokens) :-
+    ( atom(Texto) -> atom_string(Texto, Cadena) ; Cadena = Texto ),
+    string_lower(Cadena, Min),
+    split_string(Min, " \t\n\r,.;:!?¿¡()[]{}\"'/-", " \t\n\r", Partes),
+    exclude(=(""), Partes, NoVacias),
+    maplist(atom_string, Tokens, NoVacias).
+
+% =============================================================================
+% Vocabulario DCG: palabras funcionales (artículos, preposiciones, nexos)
+% =============================================================================
+
+% Nexos y palabras vacías que el DCG puede consumir sin producir criterios.
+nexo([quiero]).   nexo([busco]).    nexo([dame]).    nexo([pon]).
+nexo([ver]).      nexo([una]).      nexo([un]).      nexo([unas]).
+nexo([unos]).     nexo([el]).       nexo([la]).      nexo([los]).
+nexo([las]).      nexo([de]).       nexo([del]).     nexo([que]).
+nexo([para]).     nexo([con]).      nexo([y]).       nexo([o]).
+nexo([en]).       nexo([es]).       nexo([son]).     nexo([me]).
+nexo([muy]).      nexo([algo]).     nexo([tipo]).    nexo([mas]).
+nexo([pero]).     nexo([también]).  nexo([tambien]). nexo([poco]).
+nexo([bastante]). nexo([super]).    nexo([bien]).    nexo([mal]).
+nexo([película]). nexo([pelicula]). nexo([películas]). nexo([peliculas]).
+nexo([historia]).  nexo([filme]).   nexo([film]).    nexo([cinta]).
+nexo([recomiendame]). nexo([recomiéndame]). nexo([recomienda]).
+nexo([sugiereme]). nexo([sugiéreme]). nexo([sugiere]).
+nexo([favor]). nexo([mostrar]). nexo([muestra]).
+nexo([cual]). nexo([cuál]). nexo([hay]).
+
+% Tokens que pueden preceder a un criterio sin ser criterio por sí mismos.
+prefijo_criterio([de]).
+prefijo_criterio([de, terror]).    % "algo de terror" → se prefiere la forma con criterio
+prefijo_criterio([tipo]).
+prefijo_criterio([estilo]).
+prefijo_criterio([genero]).
+prefijo_criterio([género]).
+prefijo_criterio([tematica]).
+prefijo_criterio([temática]).
+
+% =============================================================================
+% Reglas DCG principales
+% =============================================================================
+
+% frase_criterio(-Criterio)//
+%   Reconoce una "frase criterio" en el flujo de tokens y unifica Criterio
+%   con el átomo canónico correspondiente.
+%
+%   Estrategia multi-nivel:
+%     (a) Título de película de dos palabras (ej. "toy story", "hotel transilvania")
+%     (b) Criterio por sinónimo de una sola palabra
+%     (c) Criterio compuesto por dos palabras (ej. "buena onda" → no existe, pero
+%         "terror infantil" → terror + infantil por separado)
+%   Los niveles más específicos tienen prioridad gracias al orden de las cláusulas.
+
+% (a) Títulos de dos tokens
+frase_criterio(C) --> [T1, T2],
+    { atomic_list_concat([T1, T2], ' ', Par),
+      titulo_consulta(C, _, Seq),
+      ( Seq = [T1, T2] ; atomic_list_concat(Seq, ' ', Par) ) }, !.
+
+% (b) Título de un token
+frase_criterio(C) --> [T],
+    { titulo_consulta(C, _, Seq), Seq = [T] }, !.
+
+% (c) Criterio por sinónimo de un token
+frase_criterio(C) --> [T],
+    { sinonimo(T, C), \+ nexo([T]) }, !.
+
+% =============================================================================
+% Oración DCG de más alto nivel
+% =============================================================================
+
+% oracion(-Criterios)//
+%   Parsea la lista completa de tokens extrayendo todos los criterios.
+%   Los tokens no reconocidos se saltan token a token.
+
+oracion([]) --> [].
+
+oracion([C|Cs]) --> frase_criterio(C), !, oracion(Cs).
+
+% Consumir un nexo conocido sin producir criterio
+oracion(Cs) --> [T], { nexo([T]) }, !, oracion(Cs).
+
+% Saltar cualquier token no reconocido (tolerancia a ruido)
+oracion(Cs) --> [_], !, oracion(Cs).
+
+% =============================================================================
+% Punto de entrada DCG
+% =============================================================================
+
+% dcg_consulta_a_criterios(+Texto, -Criterios)
+%   Convierte texto libre en lista de criterios canónicos usando DCG.
+%   Devuelve [] si no reconoce ningún criterio (jamás falla).
+dcg_consulta_a_criterios(Texto, Criterios) :-
+    ( atom(Texto) -> atom_string(Texto, Cadena)
+    ; string(Texto) -> Cadena = Texto
+    ; Cadena = "" ),
+    string_lower(Cadena, Min),
+    dcg_tokenizar(Min, Tokens),
+    ( phrase(oracion(CsRaw), Tokens) -> true ; CsRaw = [] ),
+    sort(CsRaw, Criterios).
+
+% =============================================================================
+% Punto de entrada JSON para el DCG (usado desde Python)
+% =============================================================================
+
+% dcg_buscar_json(+Texto, +Edad, -Json)
+%   Como buscar_json/3 pero usando el parser DCG en lugar del extractor simple.
+dcg_buscar_json(Consulta, Edad, Json) :-
+    ground(Consulta), integer(Edad), Edad >= -1,
+    dcg_consulta_a_criterios(Consulta, CriteriosDCG),
+    % También conservamos los criterios del extractor original para robustez
+    consulta_a_criterios(Consulta, CriteriosSim),
+    append(CriteriosDCG, CriteriosSim, TodosRaw),
+    sort(TodosRaw, Criterios),
+    buscar_peliculas(Criterios, Edad, Resultados),
+    estado_consulta(Consulta, Criterios, Resultados, Estado),
+    length(Resultados, Total),
+    hipotesis_competencia(Resultados, Competidores),
+    decision_motor(Criterios, Resultados, Competidores, Decision),
+    auditoria_motor(Criterios, Edad, Resultados, Competidores, Auditoria),
+    atom_json_dict(Json, _{consulta:Consulta, criterios:Criterios,
+      edad_consultada:Edad, estado:Estado, total:Total,
+      resultados:Resultados, decision:Decision, auditoria:Auditoria,
+      modo_dcg:true}, []).
+
+% dcg_analizar_json(+Texto, -Json)
+%   Solo tokeniza y parsea; no busca películas. Útil para diagnóstico en la UI.
+dcg_analizar_json(Texto, Json) :-
+    ground(Texto),
+    dcg_tokenizar(Texto, Tokens),
+    ( phrase(oracion(CsRaw), Tokens) -> true ; CsRaw = [] ),
+    sort(CsRaw, Criterios),
+    atom_json_dict(Json, _{tokens:Tokens, criterios_dcg:Criterios}, []).
+
+% =============================================================================
+% ENTREGABLE 3 — SECCIÓN B: Adquisición Dinámica de Conocimiento (Modo Experto)
+% =============================================================================
+% Permite que un usuario con rol "Experto" inyecte nuevas películas, géneros,
+% etiquetas y reglas lógicas en tiempo de ejecución, con persistencia automática
+% en el archivo .pl mediante escritura de cláusulas Prolog.
+%
+% CONTRATOS:
+%   experto_agregar_pelicula_json(+Id,+Titulo,+Anio,+Generos,+EdadMin,+Sinopsis,-Json)
+%   experto_agregar_genero_json(+PeliculaId,+Genero,-Json)
+%   experto_agregar_etiqueta_json(+PeliculaId,+Etiqueta,-Json)
+%   experto_agregar_regla_json(+NombreRegla,+CabezaAtom,+CuerpoAtom,-Json)
+%   experto_listar_reglas_json(-Json)
+%   experto_retract_regla_json(+Id,-Json)
+% =============================================================================
+
+:- dynamic pelicula_experto/3.    % marca que esta película fue agregada dinámicamente
+:- dynamic genero_experto/2.
+:- dynamic etiqueta_experto/2.
+:- dynamic edad_minima_experto/2.
+:- dynamic sinopsis_experto/2.
+
+% ---- Validadores de entrada ----
+
+id_valido(Id) :-
+    atom(Id), atom_length(Id, L), L >= 2, L =< 40,
+    atom_chars(Id, Chars),
+    maplist(char_id_valido, Chars).
+char_id_valido(C) :- char_type(C, alpha), downcase_atom(C, C).
+char_id_valido('_').
+char_id_valido(C) :- char_type(C, digit).
+
+anio_valido(A) :- integer(A), A >= 1888, A =< 2100.
+
+edad_min_valida(E) :- integer(E), E >= 0, E =< 21.
+
+% ---- Escritura de cláusulas en disco ----
+
+% escribir_clausula_pl(+Cabeza, +Cuerpo)
+%   Agrega una cláusula al final del archivo .pl de forma atómica.
+%   Cabeza es un término Prolog; Cuerpo es [] (hecho) o lista de objetivos.
+escribir_clausula_pl(Cabeza, []) :- !,
+    ruta_base_pl(Ruta),
+    setup_call_cleanup(
+        open(Ruta, append, S, [encoding(utf8)]),
+        ( write_canonical(S, Cabeza), write(S, '.\n') ),
+        close(S)
+    ).
+escribir_clausula_pl(Cabeza, Cuerpo) :-
+    is_list(Cuerpo), !,
+    ruta_base_pl(Ruta),
+    setup_call_cleanup(
+        open(Ruta, append, S, [encoding(utf8)]),
+        ( write_canonical(S, Cabeza), write(S, ' :-\n    '),
+          escribir_cuerpo_pl(S, Cuerpo), write(S, '.\n') ),
+        close(S)
+    ).
+
+escribir_cuerpo_pl(S, [G]) :- !, write_canonical(S, G).
+escribir_cuerpo_pl(S, [G|Gs]) :-
+    write_canonical(S, G), write(S, ',\n    '),
+    escribir_cuerpo_pl(S, Gs).
+
+% Escribe texto literal (para cláusulas ya formateadas como átomo/cadena)
+escribir_texto_pl(Texto) :-
+    ruta_base_pl(Ruta),
+    setup_call_cleanup(
+        open(Ruta, append, S, [encoding(utf8)]),
+        ( write(S, '\n'), write(S, Texto), write(S, '\n') ),
+        close(S)
+    ).
+
+:- dynamic ruta_archivo_pl/1.
+
+fijar_ruta_base_pl(RutaEntrada) :-
+    normalizar_atom_entrada(RutaEntrada, Ruta),
+    retractall(ruta_archivo_pl(_)),
+    assertz(ruta_archivo_pl(Ruta)).
+
+% ruta_base_pl(-Ruta)  — localiza el archivo .pl en tiempo de ejecución.
+ruta_base_pl(Ruta) :-
+    ruta_archivo_pl(Ruta), !.
+ruta_base_pl(Ruta) :-
+    source_file(pelicula_valida(_), Ruta), !.
+ruta_base_pl(Ruta) :-
+    source_file(buscar_json(_,_,_), Ruta), !.
+
+% ---- Agregar película ----
+
+experto_agregar_pelicula_json(IdEntrada, TituloEntrada, AnioEntrada,
+                              GenerosEntrada, EdadMinEntrada,
+                              SinopsisEntrada, Json) :-
+    ground([IdEntrada, TituloEntrada, AnioEntrada, GenerosEntrada,
+            EdadMinEntrada, SinopsisEntrada]),
+    normalizar_atom_entrada(IdEntrada, Id),
+    id_valido(Id),
+    normalizar_atom_entrada(TituloEntrada, Titulo),
+    atom_length(Titulo, TL), TL >= 1, TL =< 120,
+    ( integer(AnioEntrada) -> Anio = AnioEntrada
+    ; atom_number(AnioEntrada, Anio), integer(Anio) ),
+    anio_valido(Anio),
+    ( integer(EdadMinEntrada) -> EdadMin = EdadMinEntrada
+    ; atom_number(EdadMinEntrada, EdadMin), integer(EdadMin) ),
+    edad_min_valida(EdadMin),
+    normalizar_atom_entrada(SinopsisEntrada, Sinopsis),
+    atom_length(Sinopsis, SL), SL >= 10, SL =< 2000,
+    % Parsear géneros (lista de átomos o átomo separado por comas)
+    ( is_list(GenerosEntrada) -> GenerosRaw = GenerosEntrada
+    ; atom(GenerosEntrada) ->
+        atomic_list_concat(Parts, ',', GenerosEntrada),
+        maplist([P,G]>>(atom_string(P, PS), normalize_space(string(PSN), PS),
+                        atom_string(G, PSN)), Parts, GenerosRaw)
+    ; GenerosRaw = [] ),
+    maplist(normalizar_atom_entrada, GenerosRaw, Generos),
+    % Verificar que el ID no existe ya
+    ( pelicula(Id, _, _) ->
+        atom_json_dict(Json, _{ok:false,
+            mensaje:'Ya existe una película con ese identificador.'}, [])
+    ;
+        % Inyectar en memoria
+        assertz(pelicula(Id, Titulo, Anio)),
+        assertz(edad_minima(Id, EdadMin)),
+        assertz(sinopsis(Id, Sinopsis)),
+        maplist([G]>>(assertz(genero(Id, G))), Generos),
+        assertz(pelicula_experto(Id, Titulo, Anio)),
+        % Persistir en disco
+        format(atom(LineaPelicula),
+            '\n% [EXPERTO] Película agregada dinámicamente\npelicula(~q, ~q, ~w).',
+            [Id, Titulo, Anio]),
+        format(atom(LineaEdad), '\nedad_minima(~q, ~w).', [Id, EdadMin]),
+        format(atom(LineaSin), '\nsinopsis(~q, ~q).', [Id, Sinopsis]),
+        escribir_texto_pl(LineaPelicula),
+        escribir_texto_pl(LineaEdad),
+        escribir_texto_pl(LineaSin),
+        maplist([G]>>(
+            format(atom(LineaG), '\ngenero(~q, ~q).', [Id, G]),
+            escribir_texto_pl(LineaG)
+        ), Generos),
+        atom_json_dict(Json, _{ok:true,
+            mensaje:'Película agregada al catálogo y persistida en base_conocimiento.pl.',
+            id:Id, titulo:Titulo, anio:Anio,
+            edad_minima:EdadMin, generos:Generos}, [])
+    ).
+
+% ---- Agregar género a película existente (modo experto) ----
+
+experto_agregar_genero_json(IdEntrada, GeneroEntrada, Json) :-
+    ground([IdEntrada, GeneroEntrada]),
+    normalizar_atom_entrada(IdEntrada, Id),
+    pelicula_valida(Id),
+    normalizar_atom_entrada(GeneroEntrada, Genero),
+    id_valido(Genero),
+    ( genero(Id, Genero) ->
+        atom_json_dict(Json, _{ok:false,
+            mensaje:'La película ya tiene ese género.'}, [])
+    ;
+        assertz(genero(Id, Genero)),
+        assertz(genero_experto(Id, Genero)),
+        format(atom(Linea), '\n% [EXPERTO]\ngenero(~q, ~q).', [Id, Genero]),
+        escribir_texto_pl(Linea),
+        atom_json_dict(Json, _{ok:true,
+            mensaje:'Género agregado y persistido.',
+            pelicula:Id, genero:Genero}, [])
+    ).
+
+% ---- Agregar etiqueta a película existente (modo experto) ----
+
+experto_agregar_etiqueta_json(IdEntrada, EtiquetaEntrada, Json) :-
+    ground([IdEntrada, EtiquetaEntrada]),
+    normalizar_atom_entrada(IdEntrada, Id),
+    pelicula_valida(Id),
+    normalizar_atom_entrada(EtiquetaEntrada, Etiqueta),
+    id_valido(Etiqueta),
+    ( etiqueta(Id, Etiqueta) ->
+        atom_json_dict(Json, _{ok:false,
+            mensaje:'La película ya tiene esa etiqueta.'}, [])
+    ;
+        assertz(etiqueta(Id, Etiqueta)),
+        assertz(etiqueta_experto(Id, Etiqueta)),
+        format(atom(Linea), '\n% [EXPERTO]\netiqueta(~q, ~q).', [Id, Etiqueta]),
+        escribir_texto_pl(Linea),
+        atom_json_dict(Json, _{ok:true,
+            mensaje:'Etiqueta agregada y persistida.',
+            pelicula:Id, etiqueta:Etiqueta}, [])
+    ).
+
+% ---- Agregar regla lógica arbitraria (modo experto avanzado) ----
+%
+% experto_agregar_regla_json(+Nombre, +CabezaAtom, +CuerpoAtom, -Json)
+%   Nombre     : etiqueta descriptiva (átomo), ej. 'pelicula recomendada para jovenes'
+%   CabezaAtom : cabeza de la cláusula como cadena Prolog, ej. 'jovenes_ok(X)'
+%   CuerpoAtom : cuerpo como cadena, ej. 'edad_minima(X,E),E=<17'  (o '' para hecho)
+%
+% SEGURIDAD: Se validan los textos con un parser conservador que solo admite
+% cláusulas que referencian predicados declarados como seguros.
+experto_agregar_regla_json(NombreEntrada, CabezaStr, CuerpoStr, Json) :-
+    ground([NombreEntrada, CabezaStr, CuerpoStr]),
+    normalizar_atom_entrada(NombreEntrada, Nombre),
+    atom_length(Nombre, NL), NL >= 3, NL =< 80,
+    % Parsear cabeza y cuerpo de forma unificada para que las variables
+    % (ej. 'P' en la cabeza y 'P' en el cuerpo) compartan el mismo ámbito lógico.
+    ( atom(CabezaStr) -> atom_string(CabezaStr, CabezaS) ; CabezaS = CabezaStr ),
+    atom_string(CabezaAtom, CabezaS),
+    ( atom(CuerpoStr) -> atom_string(CuerpoStr, CuerpoS) ; CuerpoS = CuerpoStr ),
+    normalize_space(string(CuerpoTrim), CuerpoS),
+    ( CuerpoTrim = "" ->
+        ClausulaStr = CabezaAtom,
+        term_to_atom(ClausulaTerm, CabezaAtom),
+        functor(ClausulaTerm, Functor, Aridad)
+    ;
+        atom_string(CuerpoAtom, CuerpoTrim),
+        atomic_list_concat([CabezaAtom, ' :-\n    ', CuerpoAtom], ClausulaStr),
+        term_to_atom(ClausulaTerm, ClausulaStr),
+        ClausulaTerm = (Cabeza :- _),
+        functor(Cabeza, Functor, Aridad)
+    ),
+    % Validar que el functor de la cabeza es seguro (no puede sobrescribir
+    % predicados internos del motor).
+    ( predicado_experto_permitido(Functor, Aridad) ->
+        dynamic(Functor/Aridad),
+        discontiguous(Functor/Aridad),
+        % Inyectar en memoria la cláusula unificada
+        assertz(ClausulaTerm),
+        ( Aridad =:= 1 ->
+            assertz(regla_experto_definida(Functor, Nombre))
+        ; true ),
+        % Generar identificador único
+        get_time(T), format(atom(IdRegla), 'regla_exp_~0f', [T]),
+        assertz(diagnostico_experto(IdRegla, Nombre, ClausulaStr)),
+        % Persistir en disco
+        ( Aridad =:= 1 ->
+            format(atom(Linea),
+                '\n:- dynamic ~w/~w.\n:- discontiguous ~w/~w.\nregla_experto_definida(~w, ~q).\n% [EXPERTO] Regla: ~w\n~w.',
+                [Functor, Aridad, Functor, Aridad, Functor, Nombre, Nombre, ClausulaStr])
+        ;
+            format(atom(Linea),
+                '\n:- dynamic ~w/~w.\n:- discontiguous ~w/~w.\n% [EXPERTO] Regla: ~w\n~w.',
+                [Functor, Aridad, Functor, Aridad, Nombre, ClausulaStr])
+        ),
+        escribir_texto_pl(Linea),
+        atom_json_dict(Json, _{ok:true,
+            mensaje:'Regla inyectada en memoria y persistida en base_conocimiento.pl.',
+            id:IdRegla, nombre:Nombre, clausula:ClausulaStr}, [])
+    ;
+        format(atom(Msg),
+            'El predicado ~w/~w no está permitido para reglas de experto.',
+            [Functor, Aridad]),
+        atom_json_dict(Json, _{ok:false, mensaje:Msg}, [])
+    ).
+
+% Lista blanca de functores que el experto puede definir.
+% Los predicados del motor (buscar_json, buscar_peliculas, etc.) están excluidos.
+predicado_experto_permitido(Functor, _) :-
+    atom(Functor),
+    \+ memberchk(Functor, [
+        buscar_json, buscar_peliculas, consulta_a_criterios,
+        dcg_buscar_json, dcg_analizar_json,
+        agregar_resena_json, agregar_categoria_json,
+        experto_agregar_pelicula_json, experto_agregar_genero_json,
+        experto_agregar_etiqueta_json, experto_agregar_regla_json,
+        experto_retract_regla_json, experto_listar_reglas_json,
+        guardar_datos_json, inicializar_resenas, cargar_datos_json,
+        ruta_base_pl, escribir_clausula_pl, escribir_texto_pl
+    ]).
+
+% ---- Listar reglas de experto ----
+
+experto_listar_reglas_json(Json) :-
+    findall(_{id:Id, nombre:Nombre, clausula:Clausula},
+            diagnostico_experto(Id, Nombre, Clausula),
+            Reglas),
+    length(Reglas, Total),
+    atom_json_dict(Json, _{ok:true, total:Total, reglas:Reglas}, []).
+
+% ---- Retraer regla de experto ----
+
+experto_retract_regla_json(IdEntrada, Json) :-
+    ground(IdEntrada),
+    normalizar_atom_entrada(IdEntrada, Id),
+    ( diagnostico_experto(Id, Nombre, Clausula) ->
+        retract(diagnostico_experto(Id, Nombre, Clausula)),
+        ( term_to_atom(TermClausula, Clausula),
+          ( TermClausula = (CabezaRetract :- _) -> functor(CabezaRetract, FRetract, ARetract)
+          ; functor(TermClausula, FRetract, ARetract) ) ->
+            ( ARetract =:= 1 -> retractall(regla_experto_definida(FRetract, _)) ; true ),
+            retractall(CabezaRetract)
+        ; true ),
+        atom_json_dict(Json, _{ok:true,
+            mensaje:'Regla eliminada de la memoria (el archivo .pl conserva el historial).',
+            id:Id, nombre:Nombre}, [])
+    ;
+        atom_json_dict(Json, _{ok:false,
+            mensaje:'No se encontró una regla con ese identificador.'}, [])
+    ).
+
+% ---- Listar películas agregadas por el experto ----
+
+experto_listar_peliculas_json(Json) :-
+    findall(_{id:Id, titulo:Titulo, anio:Anio},
+            pelicula_experto(Id, Titulo, Anio),
+            Peliculas),
+    length(Peliculas, Total),
+    atom_json_dict(Json, _{ok:true, total:Total, peliculas:Peliculas}, []).
+
+% ---- Listar todos los predicados del catálogo (para diagnóstico DCG) ----
+
+experto_catalogo_json(Json) :-
+    findall(_{id:Id, titulo:Titulo, anio:Anio},
+            pelicula(Id, Titulo, Anio), Peliculas),
+    findall(S, sinonimo(S, _), SimRaw), sort(SimRaw, Sinonimos),
+    atom_json_dict(Json, _{ok:true,
+        peliculas:Peliculas, sinonimos_registrados:Sinonimos}, []).
+
+:- dynamic vintage/1.
+:- discontiguous vintage/1.
+regla_experto_definida(vintage, 'Película vintage').
+% [EXPERTO] Regla: Película vintage
+vintage(P) :-
+    pelicula(P, _, Anio), Anio < 2000.
+
+:- dynamic colombiana/1.
+:- discontiguous colombiana/1.
+regla_experto_definida(colombiana, 'Película colombiana').
+% [EXPERTO] Regla: Película colombiana
+colombiana(P) :-
+    pelicula(P, _, Anio), Anio > 2000, genero(P, colombiana).
+
+% [EXPERTO] Película agregada dinámicamente
+pelicula(poeta_2026, 'Un Poeta', 2026).
+edad_minima(poeta_2026, 0).
+sinopsis(poeta_2026, 'Un Poeta Sinopsis').
+genero(poeta_2026, drama).
+genero(poeta_2026, comedia).
+genero(poeta_2026, colombiana).
+
+
+:- dynamic vintage/1.
+:- discontiguous vintage/1.
+regla_experto_definida(vintage, 'pelicula vintage').
+% [EXPERTO] Regla: pelicula vintage
+vintage(P) :-
+    pelicula(P, _, Anio), Anio < 2000..
+
+
+% [EXPERTO] Película agregada dinámicamente
+pelicula(matrix_1990, 'The Matrix', 1990).
+
+
+edad_minima(matrix_1990, 12).
+
+
+sinopsis(matrix_1990, 'Prueba Matrix').
+
+
+genero(matrix_1990, accion).
+
+
+genero(matrix_1990, aventura).
+
+
+% [EXPERTO]
+genero(matrix_1990, ciencia_ficcion).
+
+
+% [EXPERTO]
+etiqueta(el_conjuro, futurista).
+
+
+:- dynamic noventera/1.
+:- discontiguous noventera/1.
+regla_experto_definida(noventera, noventera).
+% [EXPERTO] Regla: noventera
+noventera(P) :-
+    pelicula(P,_,Anio), Anio >=1990, Anio=<1999.

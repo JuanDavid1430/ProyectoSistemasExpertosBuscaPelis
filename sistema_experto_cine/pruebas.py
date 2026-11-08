@@ -199,6 +199,131 @@ def main() -> int:
         assert len(json.loads(ruta_json.read_text(encoding="utf-8"))["resenas"]) == 2
         assert "nemo" in ids(recargado.buscar("cringe"))
 
+    # -------------------------------------------------------------------------
+    # ENTREGABLE 3: Pruebas de DCG, Modo Experto y Pre-procesamiento Numérico
+    # -------------------------------------------------------------------------
+
+    def caso_dcg_analisis_oracion() -> None:
+        analisis = motor.analizar_dcg("quiero ver una pelicula de terror muy divertida para ninos")
+        assert analisis["tokens"] == ["quiero", "ver", "una", "pelicula", "de", "terror", "muy", "divertida", "para", "ninos"]
+        assert set(analisis["criterios_dcg"]) == {"divertida", "infantil", "terror"}
+
+    def caso_dcg_busqueda_completa() -> None:
+        datos = motor.buscar_dcg("una aventura animada con humor familiar")
+        assert datos.get("modo_dcg") is True
+        assert {"animacion", "aventura", "divertida", "familiar"} <= set(datos["criterios"])
+        assert "toy_story" in ids(datos)
+        assert datos["total"] > 0
+
+    def caso_dcg_titulos_compuestos() -> None:
+        analisis = motor.analizar_dcg("hotel transilvania para ninos")
+        assert "titulo_hotel_transilvania" in analisis["criterios_dcg"]
+        assert "infantil" in analisis["criterios_dcg"]
+
+    def caso_dcg_tolerancia_ruido() -> None:
+        analisis = motor.analizar_dcg("por favor me gustaria ver algo dramatico con mucho amor")
+        assert set(analisis["criterios_dcg"]) == {"drama", "romance"}
+
+    def caso_experto_persistencia_pelicula_y_reinicio() -> None:
+        import shutil
+        import subprocess
+        import sys
+
+        dir_exp = Path(temporal.name) / "exp_persistencia"
+        dir_exp.mkdir(parents=True, exist_ok=True)
+        pl_copia = dir_exp / "base_conocimiento.pl"
+        shutil.copyfile(motor.ruta_base, pl_copia)
+        json_exp = dir_exp / "resenas.json"
+
+        # Paso 1: Ejecutar en un subproceso para agregar la película y persistirla
+        codigo_crear = (
+            "import json\n"
+            "from motor import MotorCine\n"
+            f"m = MotorCine(ruta_base=r'{pl_copia}', ruta_datos=r'{json_exp}')\n"
+            "r = m.experto_agregar_pelicula('interstellar', 'Interstellar', 2014, ['drama'], 12, "
+            "'Un grupo de exploradores viaja por un agujero de gusano.')\n"
+            "assert r['ok'] is True, f'Fallo al agregar: {r}'\n"
+        )
+        proc1 = subprocess.run(
+            [sys.executable, "-c", codigo_crear],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).parent.resolve(),
+        )
+        assert proc1.returncode == 0, f"Error en inyección: {proc1.stderr}\nOUT: {proc1.stdout}"
+
+        # Paso 2: Certificar que el archivo .pl en disco fue modificado físicamente
+        contenido_pl = pl_copia.read_text(encoding="utf-8")
+        assert "interstellar" in contenido_pl
+        assert "pelicula(interstellar," in contenido_pl or "pelicula('interstellar'," in contenido_pl
+        assert "edad_minima(interstellar," in contenido_pl or "edad_minima('interstellar'," in contenido_pl
+
+        # Paso 3: REINICIO REAL (segundo proceso nuevo desde cero que lee el archivo modificado)
+        codigo_reinicio = (
+            "import json\n"
+            "from motor import MotorCine\n"
+            f"m = MotorCine(ruta_base=r'{pl_copia}', ruta_datos=r'{json_exp}')\n"
+            "datos = m.buscar('drama')\n"
+            "ids = {p['id'] for p in datos['resultados']}\n"
+            "assert 'interstellar' in ids, f'No aparecio interstellar tras reinicio: {ids}'\n"
+            "print('REINICIO_EXITOSO')\n"
+        )
+        proc2 = subprocess.run(
+            [sys.executable, "-c", codigo_reinicio],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).parent.resolve(),
+        )
+        assert proc2.returncode == 0, f"Error tras reinicio: {proc2.stderr}\nOUT: {proc2.stdout}"
+        assert "REINICIO_EXITOSO" in proc2.stdout
+
+    def caso_experto_regla_logica_y_seguridad() -> None:
+        resp_regla = motor.experto_agregar_regla(
+            "pelicula ochentera",
+            "ochentera(P)",
+            "pelicula(P, _, Anio), Anio < 1990"
+        )
+        assert resp_regla["ok"] is True
+        assert resp_regla["id"].startswith("regla_exp_")
+        lista = motor.experto_listar_reglas()
+        assert any(r["id"] == resp_regla["id"] for r in lista["reglas"])
+
+        # Seguridad: la lista blanca bloquea predicados críticos del motor
+        resp_seg = motor.experto_agregar_regla("hack", "buscar_json(A,B,C)", "true")
+        assert resp_seg["ok"] is False
+
+        # Retractar regla
+        resp_retract = motor.experto_retract_regla(resp_regla["id"])
+        assert resp_retract["ok"] is True
+
+    def caso_experto_regla_activa_y_dcg() -> None:
+        # Verifica que las reglas de experto y películas dinámicas son consultables
+        datos_vintage = motor.buscar("vintage")
+        assert {"titanic", "toy_story"} <= ids(datos_vintage)
+        assert "r_exp" in reglas(datos_vintage)
+
+        datos_poeta = motor.buscar("un poeta")
+        assert ids(datos_poeta) == {"poeta_2026"}
+
+        datos_dcg = motor.buscar_dcg("quiero ver una pelicula colombiana")
+        assert "poeta_2026" in ids(datos_dcg)
+
+    def caso_preprocesamiento_numerico() -> None:
+        from preprocesador import discretizar, discretizar_a_consulta
+        res1 = discretizar({"edad_espectador": 8})
+        assert "infantil" in res1.criterios_prolog
+        assert "Infantil" in res1.etiquetas_meta.get("publico", "")
+
+        res2 = discretizar({"temperatura_c": 5.0})
+        assert "terror" in res2.criterios_prolog
+
+        res3 = discretizar({"edad_espectador": 13, "temperatura_c": 28.0})
+        assert set(res3.criterios_prolog) == {"familiar", "aventura"}
+
+        consulta_str = discretizar_a_consulta({"edad_espectador": 8, "temperatura_c": 25.0})
+        assert "infantil" in consulta_str
+        assert "aventura" in consulta_str
+
     casos = [
         ("inferencia definitiva + traza", caso_definitivo),
         ("empate + pregunta de desempate", caso_empate),
@@ -219,6 +344,14 @@ def main() -> int:
         ("índice según evidencia", caso_indice_evidencia),
         ("filtro infantil combinado", caso_filtro_infantil_combinado),
         ("migración y recarga JSON", caso_migracion_json),
+        ("DCG: tokenización y criterios en lenguaje natural", caso_dcg_analisis_oracion),
+        ("DCG: búsqueda completa por oración libre", caso_dcg_busqueda_completa),
+        ("DCG: títulos compuestos en lenguaje natural", caso_dcg_titulos_compuestos),
+        ("DCG: tolerancia a ruido y nexos en español", caso_dcg_tolerancia_ruido),
+        ("Modo Experto: inyección, persistencia .pl y reinicio", caso_experto_persistencia_pelicula_y_reinicio),
+        ("Modo Experto: regla lógica en caliente y lista blanca", caso_experto_regla_logica_y_seguridad),
+        ("Modo Experto: reglas activas en búsqueda y DCG", caso_experto_regla_activa_y_dcg),
+        ("Pre-procesamiento numérico: discretización continua a discreta", caso_preprocesamiento_numerico),
     ]
     aprobadas = sum(ejecutar(nombre, prueba) for nombre, prueba in casos)
     print(f"\nRESULTADO: {aprobadas}/{len(casos)} pruebas aprobadas")

@@ -116,6 +116,38 @@ con el mismo puntaje simbólico. Una sola reseña aporta evidencia por percepci�
 y sus palabras aportan evidencia literal de menor peso. Esta coincidencia no
 interpreta negaciones ni equivale a un análisis semántico del comentario.
 
+## DCG y Procesamiento de Lenguaje Natural (Entregable 3)
+
+| Predicado/aridad | Modo | Función |
+|---|---|---|
+| `dcg_tokenizar/2` | `+Texto, -Tokens` | Tokeniza dividiendo por signos ortográficos y convirtiendo a minúsculas. |
+| `nexo/1` | `?Lista` | Reconoce artículos, preposiciones y palabras de enlace sin valor de criterio. |
+| `frase_criterio//1` | `-Criterio` | Regla DCG que unifica títulos (1 o 2 tokens) o sinónimos canónicos. |
+| `oracion//1` | `-Criterios` | Regla DCG de alto nivel que consume tokens, extrae criterios y salta ruido. |
+| `dcg_consulta_a_criterios/2` | `+Texto, -Criterios` | Convierte oración en español libre a criterios ordenados y deduplicados. |
+| `dcg_buscar_json/3` | `+Consulta, +Edad, -Json` | Inferencia completa disparada por DCG (`modo_dcg: true`). |
+| `dcg_analizar_json/2` | `+Texto, -Json` | Retorna los tokens y los criterios extraídos para visualización en UI. |
+
+## Modo Experto y Aprendizaje Dinámico en Caliente (Entregable 3)
+
+| Predicado/aridad | Modo | Función |
+|---|---|---|
+| `diagnostico_experto/3` | `?Id, ?Nombre, ?Clausula` | Metadatos de reglas lógicas inyectadas en tiempo de ejecución. |
+| `regla_experto_definida/2` | `?Functor, ?Nombre` | Registra reglas de experto 1-arias como criterios canónicos de búsqueda. |
+| `coincidencia_regla_experto/4` | `+P, +C, -Fuente, -Motivo` | Evalúa dinámicamente el predicado del experto sobre la película candidata y genera evidencia (`r_exp`, 110 pts). |
+| `pelicula_experto/3` | `?Id, ?Titulo, ?Anio` | Películas añadidas dinámicamente por el usuario Experto. |
+| `fijar_ruta_base_pl/1` | `+Ruta` | Fija la ruta destino de persistencia `.pl`. |
+| `ruta_base_pl/1` | `-Ruta` | Determina la ruta del archivo `.pl` activo. |
+| `escribir_texto_pl/1` | `+Texto` | Escribe de forma atómica al final del archivo `.pl`. |
+| `experto_agregar_pelicula_json/7` | `+Id, +Titulo, +Anio, +Generos, +EdadMin, +Sinopsis, -Json` | Inyecta con `assertz/1` y persiste película y metadatos en `.pl`. |
+| `experto_agregar_genero_json/3` | `+Id, +Genero, -Json` | Inyecta y persiste un nuevo género para una película. |
+| `experto_agregar_etiqueta_json/3` | `+Id, +Etiqueta, -Json` | Inyecta y persiste una nueva etiqueta editorial. |
+| `experto_agregar_regla_json/4` | `+Nombre, +CabezaStr, +CuerpoStr, -Json` | Inyecta regla lógica con `dynamic/1` + `assertz/1` tras validar lista blanca y la persiste en `.pl`. |
+| `experto_listar_reglas_json/1` | `-Json` | Retorna en JSON todas las reglas dinámicas activas. |
+| `experto_retract_regla_json/2` | `+Id, -Json` | Retrae regla dinámica de la memoria de sesión. |
+| `experto_listar_peliculas_json/1` | `-Json` | Lista películas añadidas por el experto. |
+| `experto_catalogo_json/1` | `-Json` | Vuelca catálogo completo y sinónimos para diagnóstico. |
+
 ## Consultas demostrativas
 
 ```prolog

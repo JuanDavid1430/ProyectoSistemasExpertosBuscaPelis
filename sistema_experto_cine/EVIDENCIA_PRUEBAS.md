@@ -1,7 +1,4 @@
-# Evidencia de pruebas — Entregable 2
 
-Ejecución local realizada el **20 de octubre de 2026** con SWI-Prolog 10.0.2,
-PySwip y Python. Resultado obtenido: **12/12 pruebas aprobadas**.
 
 ```text
 [OK]    inferencia definitiva + traza
@@ -12,30 +9,40 @@ PySwip y Python. Resultado obtenido: **12/12 pruebas aprobadas**.
 [OK]    consulta vacía
 [OK]    criterio desconocido
 [OK]    sinónimos y deduplicación
+[OK]    búsqueda directa por título
+[OK]    consulta películas para niños
 [OK]    entrada tratada como dato
 [OK]    validación de edad en el puente
 [OK]    persistencia y ranking por reseña
 [OK]    reseñas recurrentes activan inferencia
+[OK]    una reseña y búsqueda por palabras
+[OK]    categoría y percepción personalizadas en JSON
+[OK]    índice según evidencia
+[OK]    filtro infantil combinado
+[OK]    migración y recarga JSON
+[OK]    DCG: tokenización y criterios en lenguaje natural
+[OK]    DCG: búsqueda completa por oración libre
+[OK]    DCG: títulos compuestos en lenguaje natural
+[OK]    DCG: tolerancia a ruido y nexos en español
+[OK]    Modo Experto: inyección, persistencia .pl y reinicio
+[OK]    Modo Experto: regla lógica en caliente y lista blanca
+[OK]    Pre-procesamiento numérico: discretización continua a discreta
 
-RESULTADO: 12/12 pruebas aprobadas
+RESULTADO: 26/26 pruebas aprobadas
 ```
 
-## Cobertura
+## Cobertura de Entregable 3
 
 | Caso | Entrada principal | Verificación |
 |---|---|---|
-| Inferencia completa | `películas de romance` | Titanic es líder único; decisión `definitiva`; traza contiene R02 y R13. |
-| Evidencia insuficiente | `películas divertidas` | Cuatro líderes empatan; Prolog recomienda preguntar por `infantil`. |
-| Condición excluyente | `películas para niños`, edad 7 | El caso sintético de terror se descarta por `\+ contenido_de_terror/1`. |
-| Edad | `películas divertidas`, edad 5 | Se excluyen Deadpool, El Conjuro y Hotel Transilvania. |
-| Cobertura múltiple | `animación de aventura` | Toy Story y Nemo cubren ambos criterios. |
-| Entrada vacía | espacios | Estado `consulta_vacia`, sin excepción. |
-| Vocabulario desconocido | `películas intergalácticas` | Estado `criterio_no_reconocido`. |
-| Deduplicación | sinónimos repetidos | Un criterio canónico y resultados únicos. |
-| Seguridad | texto con comillas y términos | La entrada se trata como dato, no como objetivo Prolog. |
-| Validación de puente | edad `-2` | Python rechaza el tipo/rango antes de consultar. |
-| Persistencia | nueva reseña de Toy Story | El comentario queda disponible y la valoración desempata el ranking. |
-| Inferencia dinámica | dos reseñas `emocionante` para Titanic | La percepción recurrente activa a Titanic en una búsqueda posterior. |
+| **DCG: tokenización y criterios** | `quiero ver una pelicula de terror muy divertida para ninos` | El parser extrae tokens normalizados y mapea a `[divertida, infantil, terror]` sin requerir casillas fijas. |
+| **DCG: búsqueda completa** | `una aventura animada con humor familiar` | `modo_dcg: true` activo, extrae `animacion`, `aventura`, `divertida`, `familiar` y devuelve ranking. |
+| **DCG: títulos compuestos** | `hotel transilvania para ninos` | Reconoce secuencia multi-palabra `[hotel, transilvania]` mapeándola a `titulo_hotel_transilvania`. |
+| **DCG: tolerancia a ruido** | `por favor me gustaria ver algo dramatico con mucho amor` | Ignora palabras no gramaticales y extrae `[drama, romance]`. |
+| **Modo Experto: persistencia y reinicio** | Película `interstellar` inyectada en caliente | Comprobación física de escritura al archivo `.pl` y validación de inferencia en un proceso de Python completamente nuevo (simulación de reinicio). |
+| **Modo Experto: reglas y seguridad** | Cláusula `ochentera(P) :- pelicula(P,_,A), A<1990` | Inyección dinámica mediante `dynamic/1` + `assertz/1`, listado activo, descarte seguro de predicados del sistema y retracción. |
+| **Modo Experto: reglas activas en búsqueda y DCG** | Consultas `vintage`, `un poeta`, `colombiana` | Evaluación en caliente de reglas (`regla_experto_definida/2`), coincidencia dinámica (`r_exp`, 110 pts) y reconocimiento por DCG en lenguaje natural. |
+| **Pre-procesamiento numérico** | Edad 8, temperatura 25°C | `discretizar()` genera `['infantil', 'aventura']` y metadatos discretos para Prolog. |
 
 ## Reproducción
 
@@ -45,5 +52,4 @@ python -m pip install -r requirements.txt
 python pruebas.py
 ```
 
-El proceso retorna código `0` cuando todas las pruebas pasan y `1` si alguna
-falla.
+El proceso retorna código `0` cuando todas las pruebas pasan y `1` si alguna falla.

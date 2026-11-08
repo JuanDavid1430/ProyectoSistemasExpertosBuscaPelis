@@ -48,6 +48,10 @@ class MotorCine:
         self._cerrado = False
         self.prolog = Prolog()
         self.prolog.consult(str(self.ruta_base.resolve()))
+        ruta_base_prolog = json.dumps(
+            str(self.ruta_base.resolve()), ensure_ascii=False
+        )
+        list(self.prolog.query(f"fijar_ruta_base_pl({ruta_base_prolog})", maxresult=1))
         ruta_datos_prolog = json.dumps(
             str(self.ruta_datos.resolve()), ensure_ascii=False
         )
@@ -164,6 +168,101 @@ class MotorCine:
         """Prueba mínima de lectura, sin duplicar conocimiento del dominio."""
         with self._lock:
             return bool(list(self.prolog.query("pelicula_valida(_) ", maxresult=1)))
+
+    # -------------------------------------------------------------------------
+    # ENTREGABLE 3: Métodos DCG
+    # -------------------------------------------------------------------------
+
+    def buscar_dcg(self, consulta: str, edad: int | None = None) -> dict[str, Any]:
+
+        consulta_limpia = self._limpiar_consulta(consulta)
+        if edad is not None and (type(edad) is not int or edad < 0 or edad > 120):
+            raise ValueError("La edad debe ser un entero entre 0 y 120, o None.")
+        edad_prolog = -1 if edad is None else edad
+        texto_prolog = json.dumps(consulta_limpia, ensure_ascii=False)
+        objetivo = f"dcg_buscar_json({texto_prolog}, {edad_prolog}, Json)"
+        return self._consultar_json(objetivo)
+
+    def analizar_dcg(self, texto: str) -> dict[str, Any]:
+
+        if not isinstance(texto, str):
+            raise TypeError("El texto debe ser una cadena.")
+        texto_prolog = json.dumps(texto.strip(), ensure_ascii=False)
+        return self._consultar_json(f"dcg_analizar_json({texto_prolog}, Json)")
+
+    # -------------------------------------------------------------------------
+    # ENTREGABLE 3: Métodos Modo Experto
+    # -------------------------------------------------------------------------
+
+    def experto_agregar_pelicula(
+        self,
+        id_pelicula: str,
+        titulo: str,
+        anio: int,
+        generos: list[str],
+        edad_minima: int,
+        sinopsis: str,
+    ) -> dict[str, Any]:
+        """Inyecta una nueva película al catálogo y la persiste en el .pl."""
+        id_p = json.dumps(id_pelicula.strip(), ensure_ascii=False)
+        tit_p = json.dumps(titulo.strip(), ensure_ascii=False)
+        anio_p = int(anio)
+        gen_p = json.dumps(generos, ensure_ascii=False)
+        edad_p = int(edad_minima)
+        sin_p = json.dumps(sinopsis.strip(), ensure_ascii=False)
+        objetivo = (
+            f"experto_agregar_pelicula_json({id_p}, {tit_p}, {anio_p}, "
+            f"{gen_p}, {edad_p}, {sin_p}, Json)"
+        )
+        return self._consultar_json(objetivo)
+
+    def experto_agregar_genero(self, pelicula_id: str, genero: str) -> dict[str, Any]:
+        """Agrega un género a una película existente y lo persiste."""
+        id_p = json.dumps(pelicula_id.strip(), ensure_ascii=False)
+        gen_p = json.dumps(self._normalizar_etiqueta(genero), ensure_ascii=False)
+        return self._consultar_json(
+            f"experto_agregar_genero_json({id_p}, {gen_p}, Json)"
+        )
+
+    def experto_agregar_etiqueta(
+        self, pelicula_id: str, etiqueta: str
+    ) -> dict[str, Any]:
+        """Agrega una etiqueta a una película existente y la persiste."""
+        id_p = json.dumps(pelicula_id.strip(), ensure_ascii=False)
+        et_p = json.dumps(self._normalizar_etiqueta(etiqueta), ensure_ascii=False)
+        return self._consultar_json(
+            f"experto_agregar_etiqueta_json({id_p}, {et_p}, Json)"
+        )
+
+    def experto_agregar_regla(
+        self, nombre: str, cabeza: str, cuerpo: str
+    ) -> dict[str, Any]:
+    
+        nombre_p = json.dumps(nombre.strip(), ensure_ascii=False)
+        cab_p = json.dumps(cabeza.strip(), ensure_ascii=False)
+        cue_p = json.dumps(cuerpo.strip(), ensure_ascii=False)
+        return self._consultar_json(
+            f"experto_agregar_regla_json({nombre_p}, {cab_p}, {cue_p}, Json)"
+        )
+
+    def experto_listar_reglas(self) -> dict[str, Any]:
+        """Devuelve todas las reglas inyectadas por el modo experto."""
+        return self._consultar_json("experto_listar_reglas_json(Json)")
+
+    def experto_retract_regla(self, regla_id: str) -> dict[str, Any]:
+        """Elimina de la memoria una regla experto por su ID."""
+        id_p = json.dumps(regla_id.strip(), ensure_ascii=False)
+        return self._consultar_json(
+            f"experto_retract_regla_json({id_p}, Json)"
+        )
+
+    def experto_listar_peliculas(self) -> dict[str, Any]:
+        """Lista las películas creadas por el modo experto."""
+        return self._consultar_json("experto_listar_peliculas_json(Json)")
+
+    def experto_catalogo(self) -> dict[str, Any]:
+        """Devuelve catálogo completo + sinónimos registrados (para diagnóstico)."""
+        return self._consultar_json("experto_catalogo_json(Json)")
 
     def cerrar(self) -> None:
         """Sincroniza y libera el archivo persistente (útil en pruebas)."""

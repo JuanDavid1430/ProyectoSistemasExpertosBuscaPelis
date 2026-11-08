@@ -94,22 +94,43 @@ presiona `Ctrl+C` en la terminal.
 python pruebas.py
 ```
 
-Las **12 pruebas** cubren el puente PySwip, una decisión definitiva, un empate,
-la traza, el filtro etario, la exclusión con `\+`, entradas seguras, persistencia
-de reseñas, actualización del ranking y activación de inferencias por opiniones.
+Las **26 pruebas automáticas** cubren:
+- Inferencia simbólica, traza explicable, empate y preguntas de desempate.
+- Filtro etario y exclusión con negación por fallo (`\+`).
+- Persistencia y ranking por reseñas en JSON.
+- **Entregable 3 (DCG)**: tokenización, análisis gramatical, multi-palabra y tolerancia a ruido en oraciones libres en español.
+- **Entregable 3 (Modo Experto)**: inyección dinámica con `assertz/1`, persistencia atómica en `base_conocimiento.pl`, lista blanca de seguridad y verificación en un proceso nuevo tras reinicio.
+- **Entregable 3 (Pre-procesamiento Numérico Híbrido)**: discretización continua de variables a hechos Prolog mediante heurística y scikit-learn.
+
+## Novedades del Entregable 3
+
+1. **Lenguaje Natural con DCG (`base_conocimiento.pl` & pestaña `🧠 DCG / NLP`)**:
+   - Analiza oraciones libres (ej. *"quiero ver una pelicula de terror muy divertida para toda la familia"*).
+   - Extrae automáticamente los criterios simbólicos (`[divertida, infantil, terror]`).
+   - Salta ruido y palabras funcionales gramaticales.
+
+2. **Adquisición Dinámica de Conocimiento (`🔐 Modo Experto`)**:
+   - Acceso con contraseña (`experto2025` en la barra lateral).
+   - Permite crear nuevas películas, asociar géneros/etiquetas e inyectar reglas lógicas en caliente.
+   - Usa `assertz/1` en memoria y persiste las cláusulas escribiéndolas en `base_conocimiento.pl` para que sobrevivan reinicios.
+   - Cuenta con lista blanca para impedir la sobreescritura de predicados internos del motor.
+
+3. **Pre-procesamiento Numérico Híbrido (`preprocesador.py` & pestaña `🔢 Pre-procesamiento`)**:
+   - Discretiza variables numéricas del mundo real (edad, temperatura ambiente, calificación de referencia, duración, época) en hechos canónicos para Prolog.
+   - Soporte opcional para clasificador con scikit-learn (`KBinsDiscretizer`).
 
 ## Archivos de entrega
 
-- `main.py`: interfaz moderna en Streamlit.
-- `motor.py`: puente seguro con PySwip.
-- `base_conocimiento.pl`: motor simbólico y de explicabilidad.
-- `DICCIONARIO_PREDICADOS.md`: modos `+`, `-`, `?` y documentación técnica.
-- `pruebas.py`: validación automatizada de los dos flujos del entregable.
-- `GUIA_VIDEO.md`: guion sugerido para la demostración de 3 a 5 minutos.
+- `main.py`: interfaz moderna en Streamlit con pestañas de resultados, caja blanca, DCG, modo experto y pre-procesamiento.
+- `motor.py`: puente seguro con PySwip ampliado para DCG y Modo Experto.
+- `base_conocimiento.pl`: motor simbólico con DCG y persistencia de conocimiento dinámico.
+- `preprocesador.py`: módulo híbrido de discretización numérica continua a discreta.
+- `DICCIONARIO_PREDICADOS.md`: modos `+`, `-`, `?` y documentación técnica completa.
+- `EVIDENCIA_PRUEBAS.md`: registro de 26/26 pruebas aprobadas.
+- `pruebas.py`: suite completa de 26 pruebas automáticas.
+- `requirements.txt`: dependencias del proyecto (incluye scikit-learn opcional).
 - `assets/posters/README.md`: nombres esperados para los pósters suministrados.
 - `data/resenas_usuario.json`: almacenamiento local generado en ejecución (ignorado por Git).
-- `data/resenas_usuario.db`: archivo antiguo conservado cuando se realiza la migración.
-- `../INFORME_ENTREGA_2.md`: informe listo para anexar a la Entrega 1.
 
 ## Alcance y advertencia
 

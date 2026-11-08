@@ -1,9 +1,3 @@
-"""Interfaz web de CineExperto para el Entregable 2.
-
-Puede iniciarse con ``streamlit run main.py`` o directamente con
-``python main.py``; en el segundo caso el script relanza Streamlit.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -17,6 +11,7 @@ import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 from motor import MotorCine
+from preprocesador import discretizar, ResultadoDiscretizacion
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -46,7 +41,7 @@ asegurar_ejecucion_streamlit()
 
 
 st.set_page_config(
-    page_title="CineExperto · Caja Blanca",
+    page_title="CineExperto · Entregable 3 · DCG + Modo Experto",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -311,6 +306,55 @@ st.markdown(
     .status-ok { color:#66e3ba !important; }
     hr { border-color:#202631 !important; }
 
+    /* ---- Entregable 3: DCG + Modo Experto ---- */
+    .dcg-badge {
+        display:inline-block; background:#1b3a2d; color:#6ee7b7;
+        border:1px solid #2d7a5a; border-radius:8px;
+        padding:.18rem .55rem; font-size:.72rem; font-weight:700;
+        letter-spacing:.09em; text-transform:uppercase; margin-left:.6rem;
+    }
+    .dcg-token {
+        display:inline-block; background:#1a1f2b; color:#93c5fd;
+        border:1px solid #2d4a7a; border-radius:6px;
+        padding:.15rem .4rem; font-size:.74rem; margin:.18rem .18rem 0 0;
+        font-family:monospace;
+    }
+    .dcg-criterio {
+        display:inline-block; background:#1e2b1a; color:#86efac;
+        border:1px solid #2d5a3a; border-radius:6px;
+        padding:.15rem .42rem; font-size:.74rem; margin:.18rem .18rem 0 0;
+        font-family:monospace; font-weight:700;
+    }
+    .expert-panel {
+        background:linear-gradient(145deg,#0f1a0e,#0a120a);
+        border:1px solid #2a5a2a; border-radius:18px;
+        padding:1.4rem 1.5rem; margin:.8rem 0;
+    }
+    .expert-badge {
+        display:inline-block; background:#15381a; color:#4ade80;
+        border:1px solid #22c55e; border-radius:999px;
+        padding:.22rem .7rem; font-size:.7rem; font-weight:800;
+        letter-spacing:.12em; text-transform:uppercase;
+    }
+    .expert-warning {
+        background:#1f1300; border:1px solid #854d0e; border-radius:10px;
+        color:#fde68a; padding:.7rem 1rem; font-size:.82rem; margin:.5rem 0;
+    }
+    .rule-card {
+        background:#0d1a0d; border:1px solid #1e4a1e; border-radius:12px;
+        padding:.8rem 1rem; margin:.5rem 0;
+    }
+    .rule-id { color:#4ade80; font-family:monospace; font-size:.72rem; }
+    .rule-name { color:#bbf7d0; font-weight:700; margin:.2rem 0; }
+    .rule-clausula { color:#86efac; font-family:monospace; font-size:.78rem; }
+    .num-card {
+        background:#111827; border:1px solid #1e3a5f; border-radius:14px;
+        padding:1rem 1.1rem; margin:.5rem 0;
+    }
+    .num-label { color:#7dd3fc; font-size:.7rem; font-weight:700;
+        letter-spacing:.09em; text-transform:uppercase; }
+    .num-value { color:#e0f2fe; font-size:1rem; font-weight:700; margin-top:.3rem; }
+
     /* Buscador tipo portal de cine. */
     .st-key-search_area {
         position:relative; margin:.15rem 0 .9rem; padding:1rem 1.2rem .9rem;
@@ -389,7 +433,7 @@ st.markdown(
         min-height:2.55rem; margin-top:.48rem; font-size:.78rem; line-height:1.38;
         display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden;
     }
-    .st-key-movie_grid div.stButton > button {
+    [class*="st-key-movie_grid"] div.stButton > button {
         min-height:2.35rem; padding:.35rem .6rem; font-size:.82rem; margin-top:-.18rem;
     }
     .sidebar-query {
@@ -399,8 +443,8 @@ st.markdown(
     }
 
     @media (max-width:900px) {
-        .st-key-movie_grid [data-testid="stHorizontalBlock"] { flex-wrap:wrap; }
-        .st-key-movie_grid [data-testid="stColumn"] {
+        [class*="st-key-movie_grid"] [data-testid="stHorizontalBlock"] { flex-wrap:wrap; }
+        [class*="st-key-movie_grid"] [data-testid="stColumn"] {
             flex:1 1 calc(50% - .6rem) !important; width:calc(50% - .6rem) !important;
             min-width:260px !important;
         }
@@ -419,7 +463,7 @@ st.markdown(
         }
         .result-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
         .section-heading { align-items:flex-start; flex-direction:column; }
-        .st-key-movie_grid [data-testid="stColumn"] {
+        [class*="st-key-movie_grid"] [data-testid="stColumn"] {
             flex:1 1 100% !important; width:100% !important; min-width:0 !important;
         }
     }
@@ -443,7 +487,7 @@ EXTENSIONES_POSTER = (".webp", ".jpg", ".jpeg", ".png")
 PELICULAS_CARTELERA = (
     "el_conjuro", "it", "annabelle", "toy_story", "nemo", "intensamente",
     "coco", "encanto", "shrek", "villano", "deadpool", "joker",
-    "coraline", "hotel", "titanic",
+    "coraline", "hotel", "titanic", "poeta_2026",
 )
 
 
@@ -517,7 +561,7 @@ def tarjeta_pelicula(pelicula: dict, puesto: int) -> str:
     """
 
 
-def mostrar_resultados(datos: dict) -> None:
+def mostrar_resultados(datos: dict, prefijo_key: str = "cartelera") -> None:
     resultados = datos["resultados"]
     if not resultados:
         estados = {
@@ -538,7 +582,7 @@ def mostrar_resultados(datos: dict) -> None:
     )
     # Cuatro columnas imitan una cartelera compacta. Las reglas CSS reducen la
     # rejilla a dos columnas en tableta y una en móvil.
-    with st.container(key="movie_grid"):
+    with st.container(key=f"movie_grid_{prefijo_key}"):
         for inicio in range(0, len(resultados), 4):
             columnas = st.columns(4, gap="small")
             for desplazamiento, columna in enumerate(columnas):
@@ -552,7 +596,7 @@ def mostrar_resultados(datos: dict) -> None:
                         )
                         if st.button(
                             "Ver película",
-                            key=f"detalle_{pelicula['id']}",
+                            key=f"detalle_{prefijo_key}_{pelicula['id']}",
                             use_container_width=True,
                         ):
                             st.session_state.pelicula_seleccionada = pelicula["id"]
@@ -840,6 +884,522 @@ def mostrar_ficha(pelicula_id: str) -> None:
         st.rerun()
 
 
+# =============================================================================
+# ENTREGABLE 3 — Funciones de panel: DCG, Modo Experto y Pre-procesamiento
+# =============================================================================
+
+
+def mostrar_panel_dcg() -> None:
+    """Panel de análisis de Lenguaje Natural con DCG."""
+    st.markdown(
+        '<h3>Parser DCG <span class="dcg-badge">Entregable 3</span></h3>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """El sistema emplea una **Definite Clause Grammar (DCG)** implementada
+        en Prolog para analizar oraciones en español libre, extraer los tokens
+        y mapearlos a los criterios canónicos del motor de inferencia.
+        Las palabras no reconocidas se saltan silenciosamente (tolerancia al ruido)."""
+    )
+
+    with st.form("dcg_analisis"):
+        col_txt, col_btn = st.columns([4, 1.2], gap="small", vertical_alignment="bottom")
+        with col_txt:
+            texto_dcg = st.text_input(
+                "Escribe una oración en español libre",
+                value=st.session_state.get("dcg_texto_previo", "quiero ver un poeta"),
+                placeholder="Ej.: quiero ver un poeta, o busco una aventura animada con humor…",
+                max_chars=240,
+                label_visibility="collapsed",
+            )
+        with col_btn:
+            analizar = st.form_submit_button("Interpretar y Buscar", use_container_width=True)
+
+    if analizar and texto_dcg.strip():
+        st.session_state.dcg_texto_previo = texto_dcg.strip()
+        with st.spinner("Analizando con DCG en Prolog y consultando cartelera…"):
+            try:
+                analisis = motor.analizar_dcg(texto_dcg)
+                edad_dcg = int(edad) if usar_edad else None
+                resp = motor.buscar_dcg(texto_dcg, edad_dcg)
+                st.session_state.respuesta = resp
+                st.session_state.consulta_actual = texto_dcg
+                st.session_state.edad_actual = edad_dcg
+                st.session_state.dcg_ultimo_analisis = analisis
+                st.session_state.dcg_ultima_respuesta = resp
+            except Exception as exc:
+                st.error(f"Error al ejecutar el DCG: {exc}")
+
+    # Mostrar análisis y resultados guardados en sesión
+    if "dcg_ultimo_analisis" in st.session_state:
+        analisis = st.session_state.dcg_ultimo_analisis
+        resp = st.session_state.get("dcg_ultima_respuesta", {})
+        tokens = analisis.get("tokens", [])
+        criterios = analisis.get("criterios_dcg", [])
+
+        col_tok, col_crit = st.columns(2, gap="large")
+        with col_tok:
+            st.markdown("**Tokens identificados por la gramática**")
+            if tokens:
+                st.markdown(
+                    " ".join(
+                        f'<span class="dcg-token">{escape(str(t))}</span>'
+                        for t in tokens
+                    ),
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.caption("Sin tokens.")
+        with col_crit:
+            st.markdown("**Criterios canónicos extraídos por el DCG**")
+            if criterios:
+                st.markdown(
+                    " ".join(
+                        f'<span class="dcg-criterio">{escape(str(c))}</span>'
+                        for c in criterios
+                    ),
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.info("El DCG no reconoció criterios específicos en esta oración.")
+
+        st.markdown("---")
+        if resp.get("resultados"):
+            st.markdown(f"#### 🎬 Películas encontradas ({len(resp['resultados'])})")
+            mostrar_resultados(resp, prefijo_key="dcg")
+        else:
+            st.warning("No se encontraron películas con los criterios extraídos.")
+
+    st.markdown("---")
+    with st.expander("ℹ️ ¿Cómo funciona la DCG?"):
+        st.markdown(
+            """
+**Arquitectura del parser DCG** (implementado en `base_conocimiento.pl`):
+
+1. **Tokenización** (`dcg_tokenizar/2`): el texto se convierte a minúsculas y se divide
+   en átomos por espacios y puntuación.
+2. **Regla principal** (`oracion//1`): consume la lista de tokens de izquierda a derecha.
+   - Reconoce frases de criterio (`frase_criterio//1`).
+   - Salta nexos funcionales (artículos, preposiciones, verbos comunes).
+   - Silencia tokens desconocidos (tolerancia al ruido).
+3. **Frases de criterio** (`frase_criterio//1`):
+   - Títulos de dos tokens (ej. `toy story`, `hotel transilvania`).
+   - Títulos de un token (ej. `coraline`, `coco`).
+   - Sinónimos canónicos (ej. `terror`, `animadas` → `animacion`, `niños` → `infantil`).
+4. **Combinación con el extractor simple**: el DCG se combina con el extractor
+   basado en sinónimos (`consulta_a_criterios/2`) para máxima cobertura.
+
+```prolog
+oracion([]) --> [].
+oracion([C|Cs]) --> frase_criterio(C), !, oracion(Cs).
+oracion(Cs)    --> [T], { nexo([T]) }, !, oracion(Cs).
+oracion(Cs)    --> [_], !, oracion(Cs).   % saltar desconocido
+```
+            """
+        )
+
+
+def _tarjeta_regla(regla: dict) -> str:
+    id_r = escape(str(regla.get("id", "")))
+    nombre = escape(str(regla.get("nombre", "")))
+    clausula = escape(str(regla.get("clausula", "")))
+    return (
+        f'<div class="rule-card">'
+        f'<div class="rule-id">{id_r}</div>'
+        f'<div class="rule-name">{nombre}</div>'
+        f'<div class="rule-clausula"><pre>{clausula}</pre></div>'
+        f"</div>"
+    )
+
+
+def mostrar_panel_experto(es_experto: bool) -> None:
+    """Panel exclusivo para usuario con rol Experto."""
+    st.markdown(
+        '<h3>Modo Experto <span class="expert-badge">Acceso restringido</span></h3>',
+        unsafe_allow_html=True,
+    )
+
+    if not es_experto:
+        st.markdown(
+            '<div class="expert-warning">'
+            "Ingresa la contraseña de experto en la barra lateral para "
+            "acceder a este panel."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.info(
+            "El Modo Experto permite inyectar nuevo conocimiento lógico en tiempo "
+            "de ejecución. Las reglas y películas nuevas se guardan automáticamente "
+            "en `base_conocimiento.pl` para que persistan entre reinicios."
+        )
+        return
+
+    st.success("✓ Sesión de experto activa. Las acciones se persisten en el archivo `.pl`.")
+    st.markdown(
+        '<div class="expert-warning">'
+        "⚠ Las cláusulas inyectadas se escriben al final de <code>base_conocimiento.pl</code>. "
+        "Revisa el archivo antes de compartir el proyecto."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    sub_pelicula, sub_genero_etiq, sub_regla, sub_ver = st.tabs(
+        ["Nueva Película", "Género / Etiqueta", "Nueva Regla", "Ver Reglas"]
+    )
+
+    # ---- Sub-panel: Nueva Película ----
+    with sub_pelicula:
+        st.markdown("#### Agregar nueva película al catálogo")
+        st.caption(
+            "La película quedará disponible inmediatamente para búsquedas y se "
+            "escribirá al final de `base_conocimiento.pl`."
+        )
+        with st.form("experto_nueva_pelicula", clear_on_submit=True):
+            id_p = st.text_input(
+                "ID único (minúsculas, sin espacios, usa _)",
+                placeholder="ej.: matrix_1999",
+                max_chars=40,
+            )
+            titulo_p = st.text_input("Título", placeholder="Ej.: The Matrix", max_chars=120)
+            col_a, col_e = st.columns(2)
+            with col_a:
+                anio_p = st.number_input("Año", min_value=1888, max_value=2100, value=2024)
+            with col_e:
+                edad_min_p = st.number_input(
+                    "Edad mínima", min_value=0, max_value=21, value=12
+                )
+            generos_p = st.multiselect(
+                "Géneros",
+                ["accion", "animacion", "aventura", "comedia", "drama",
+                 "fantasia", "musical", "romance", "terror"],
+                default=["accion"],
+            )
+            sinopsis_p = st.text_area(
+                "Sinopsis",
+                height=100,
+                max_chars=2000,
+                placeholder="Descripción breve de la trama…",
+            )
+            enviar_pelicula = st.form_submit_button(
+                "Agregar película y persistir", use_container_width=True
+            )
+
+        if enviar_pelicula:
+            if not id_p.strip() or not titulo_p.strip() or not sinopsis_p.strip():
+                st.error("ID, título y sinopsis son obligatorios.")
+            else:
+                with st.spinner("Inyectando en Prolog y escribiendo en disco…"):
+                    try:
+                        resp = motor.experto_agregar_pelicula(
+                            id_p, titulo_p, int(anio_p),
+                            generos_p, int(edad_min_p), sinopsis_p,
+                        )
+                        if resp.get("ok"):
+                            st.success(resp["mensaje"])
+                        else:
+                            st.warning(resp.get("mensaje", "Sin respuesta."))
+                    except Exception as exc:
+                        st.error(f"Error: {exc}")
+
+    # ---- Sub-panel: Género / Etiqueta ----
+    with sub_genero_etiq:
+        st.markdown("#### Agregar género o etiqueta a película existente")
+        try:
+            catalogo = motor.experto_catalogo()
+            ids_peliculas = [
+                str(p["id"]) for p in catalogo.get("peliculas", [])
+            ]
+        except Exception:
+            ids_peliculas = []
+
+        col_g, col_e2 = st.columns(2, gap="large")
+        with col_g:
+            st.markdown("**Agregar género**")
+            with st.form("experto_genero", clear_on_submit=True):
+                pid_g = st.selectbox("Película", ids_peliculas, key="sg_pid")
+                nuevo_genero = st.text_input(
+                    "Nuevo género", placeholder="ej.: ciencia_ficcion", max_chars=30
+                )
+                enviar_genero = st.form_submit_button(
+                    "Agregar género", use_container_width=True
+                )
+            if enviar_genero and nuevo_genero.strip():
+                with st.spinner("Procesando…"):
+                    try:
+                        resp = motor.experto_agregar_genero(pid_g, nuevo_genero)
+                        if resp.get("ok"):
+                            st.success(resp["mensaje"])
+                        else:
+                            st.warning(resp.get("mensaje", ""))
+                    except Exception as exc:
+                        st.error(f"Error: {exc}")
+
+        with col_e2:
+            st.markdown("**Agregar etiqueta**")
+            with st.form("experto_etiqueta", clear_on_submit=True):
+                pid_e = st.selectbox("Película", ids_peliculas, key="se_pid")
+                nueva_etiqueta = st.text_input(
+                    "Nueva etiqueta", placeholder="ej.: epica", max_chars=30
+                )
+                enviar_etiqueta = st.form_submit_button(
+                    "Agregar etiqueta", use_container_width=True
+                )
+            if enviar_etiqueta and nueva_etiqueta.strip():
+                with st.spinner("Procesando…"):
+                    try:
+                        resp = motor.experto_agregar_etiqueta(pid_e, nueva_etiqueta)
+                        if resp.get("ok"):
+                            st.success(resp["mensaje"])
+                        else:
+                            st.warning(resp.get("mensaje", ""))
+                    except Exception as exc:
+                        st.error(f"Error: {exc}")
+
+    # ---- Sub-panel: Nueva Regla Lógica ----
+    with sub_regla:
+        st.markdown("#### Inyectar regla Prolog en caliente")
+        st.markdown(
+            """Define una nueva cláusula Prolog. Se inyecta con `assertz/1` en la
+            sesión actual **y** se escribe al final de `base_conocimiento.pl` para
+            que persista entre reinicios.
+
+            **Formato**: escribe cabeza y cuerpo por separado (sin el punto final).
+            Deja el cuerpo vacío para agregar un *hecho* puro.
+            """
+        )
+        with st.expander("Ejemplos de reglas válidas"):
+            st.code(
+                "# Hecho puro: definir que una película es clásica\n"
+                "Cabeza: clasica(titanic)\n"
+                "Cuerpo: (vacío)\n\n"
+                "# Regla: película clásica si es de antes de año 2000\n"
+                "Cabeza: clasica(P)\n"
+                "Cuerpo: pelicula(P, _, Anio), Anio < 2000\n\n"
+                "# Regla: recomendar terror para adultos\n"
+                "Cabeza: terror_adulto(P)\n"
+                "Cuerpo: genero(P, terror), edad_minima(P, E), E >= 16",
+                language="prolog",
+            )
+
+        with st.form("experto_nueva_regla", clear_on_submit=True):
+            nombre_r = st.text_input(
+                "Nombre descriptivo de la regla",
+                placeholder="Ej.: Película clásica pre-2000",
+                max_chars=80,
+            )
+            cabeza_r = st.text_input(
+                "Cabeza de la cláusula (Prolog)",
+                placeholder="Ej.: clasica(P)",
+                max_chars=200,
+            )
+            cuerpo_r = st.text_area(
+                "Cuerpo de la cláusula (Prolog, vacío = hecho puro)",
+                placeholder="Ej.: pelicula(P, _, Anio), Anio < 2000",
+                height=80,
+                max_chars=800,
+            )
+            enviar_regla = st.form_submit_button(
+                "⚡ Inyectar regla y persistir", use_container_width=True
+            )
+
+        if enviar_regla:
+            if not nombre_r.strip() or not cabeza_r.strip():
+                st.error("El nombre y la cabeza son obligatorios.")
+            else:
+                with st.spinner("Compilando y persistiendo…"):
+                    try:
+                        resp = motor.experto_agregar_regla(
+                            nombre_r, cabeza_r, cuerpo_r
+                        )
+                        if resp.get("ok"):
+                            st.success(resp["mensaje"])
+                            st.code(resp.get("clausula", ""), language="prolog")
+                        else:
+                            st.warning(resp.get("mensaje", "Sin respuesta."))
+                    except Exception as exc:
+                        st.error(f"Error al inyectar regla: {exc}")
+
+    # ---- Sub-panel: Ver Reglas ----
+    with sub_ver:
+        st.markdown("#### Reglas inyectadas en esta sesión")
+        with st.spinner("Consultando base de conocimiento…"):
+            try:
+                resp = motor.experto_listar_reglas()
+                reglas = resp.get("reglas", [])
+                total = resp.get("total", 0)
+                if total == 0:
+                    st.info("No hay reglas de experto registradas en esta sesión.")
+                else:
+                    st.markdown(f"**{total} regla(s) activa(s)**")
+                    for regla in reglas:
+                        col_r, col_del = st.columns([5, 1], gap="small")
+                        with col_r:
+                            st.markdown(
+                                _tarjeta_regla(regla), unsafe_allow_html=True
+                            )
+                        with col_del:
+                            if st.button(
+                                "🗑",
+                                key=f"del_{regla.get('id')}",
+                                help="Eliminar de la memoria (el .pl conserva el historial)",
+                            ):
+                                try:
+                                    r2 = motor.experto_retract_regla(str(regla["id"]))
+                                    if r2.get("ok"):
+                                        st.success("Regla eliminada de la memoria.")
+                                        st.rerun()
+                                    else:
+                                        st.warning(r2.get("mensaje", ""))
+                                except Exception as exc:
+                                    st.error(str(exc))
+
+                st.markdown("---")
+                st.markdown("#### Películas creadas por experto")
+                resp_p = motor.experto_listar_peliculas()
+                peliculas_exp = resp_p.get("peliculas", [])
+                if not peliculas_exp:
+                    st.caption("Ninguna película agregada en esta sesión.")
+                else:
+                    for pe in peliculas_exp:
+                        st.markdown(
+                            f"- **{escape(str(pe.get('titulo', '')))}** "
+                            f"({pe.get('anio', '?')}) — `{pe.get('id', '')}`"
+                        )
+            except Exception as exc:
+                st.error(f"Error al listar reglas: {exc}")
+
+
+def mostrar_panel_numerico() -> None:
+    """Panel de pre-procesamiento numérico (Módulo Híbrido Opcional)."""
+    st.markdown("### Pre-procesamiento Numérico Híbrido")
+    st.markdown(
+        """Este módulo (implementado en `preprocesador.py`) convierte **variables
+        continuas del mundo real** en hechos discretos antes de inyectarlos
+        como criterios a Prolog.
+
+        Es el componente *opcional híbrido* del Entregable 3: combina heurísticas
+        Python con un clasificador ligero de **scikit-learn** (si está disponible)."""
+    )
+
+    col1, col2 = st.columns(2, gap="large")
+    with col1:
+        st.markdown("**Variables numéricas de entrada**")
+        usar_edad_num = st.toggle("Usar edad del espectador", value=True, key="num_edad_toggle")
+        edad_num = st.slider("Edad del espectador", 0, 120, 10, disabled=not usar_edad_num)
+        usar_temp = st.toggle("Usar temperatura ambiente (ilustrativo)", value=False, key="num_temp_toggle")
+        temp_c = st.slider("Temperatura (°C)", -10, 45, 22, disabled=not usar_temp)
+        usar_calif = st.toggle("Usar calificación de referencia", value=False, key="num_calif_toggle")
+        calif_ref = st.slider(
+            "Calificación de referencia (1-10)", 1.0, 10.0, 7.5, step=0.5,
+            disabled=not usar_calif
+        )
+        usar_sklearn_num = st.toggle(
+            "Usar scikit-learn para discretizar edad",
+            value=False,
+            key="num_sklearn_toggle",
+            help="Si scikit-learn no está instalado, usa la heurística por umbrales.",
+        )
+
+    with col2:
+        st.markdown("**Resultado de la discretización**")
+        variables: dict = {}
+        if usar_edad_num:
+            variables["edad_espectador"] = edad_num
+        if usar_temp:
+            variables["temperatura_c"] = float(temp_c)
+        if usar_calif:
+            variables["calificacion_ref"] = float(calif_ref)
+        if usar_sklearn_num:
+            variables["usar_sklearn"] = True
+
+        resultado: ResultadoDiscretizacion = discretizar(variables)
+
+        # Criterios → pills
+        if resultado.criterios_prolog:
+            st.markdown("**Criterios generados:**")
+            st.markdown(
+                " ".join(
+                    f'<span class="dcg-criterio">{escape(c)}</span>'
+                    for c in resultado.criterios_prolog
+                ),
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption("Sin criterios generados (activa al menos una variable).")
+
+        # Meta-etiquetas
+        if resultado.etiquetas_meta:
+            st.markdown("**Metadatos calculados:**")
+            for clave, valor in resultado.etiquetas_meta.items():
+                st.markdown(
+                    f'<div class="num-card">'
+                    f'<div class="num-label">{escape(clave)}</div>'
+                    f'<div class="num-value">{escape(valor)}</div>'
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+        if resultado.sklearn_usado:
+            st.markdown(
+                '<span class="dcg-badge" style="background:#1a2a3a;color:#93c5fd;'
+                'border-color:#2d4a7a;">scikit-learn activo</span>',
+                unsafe_allow_html=True,
+            )
+
+        if resultado.advertencias:
+            for adv in resultado.advertencias:
+                st.warning(adv)
+
+    if resultado.criterios_prolog:
+        st.markdown("---")
+        consulta_num = " ".join(resultado.criterios_prolog)
+        st.markdown(
+            f"**Consulta equivalente generada:** `{consulta_num}`"
+        )
+        if st.button("Buscar con estos criterios numéricos", key="num_buscar"):
+            with st.spinner("Consultando motor…"):
+                try:
+                    edad_num_q = int(edad_num) if usar_edad_num else None
+                    resp = motor.buscar(consulta_num, edad_num_q)
+                    st.session_state.respuesta = resp
+                    st.session_state.consulta_actual = consulta_num
+                    st.session_state.edad_actual = edad_num_q
+                    st.success(
+                        f"✓ Búsqueda completada: {resp.get('total', 0)} película(s) encontrada(s)."
+                    )
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Error: {exc}")
+
+    with st.expander("ℹetalles del módulo de pre-procesamiento"):
+        st.markdown(
+            """
+**`preprocesador.py`** implementa el flujo híbrido:
+
+| Variable | Rango | Criterio generado |
+|---|---|---|
+| `edad_espectador` | 0-10 | `infantil` |
+| `edad_espectador` | 11-15 | `familiar` |
+| `edad_espectador` | 16-120 | *(sin restricción)* |
+| `temperatura_c` | <10°C | `terror` |
+| `temperatura_c` | 10-20°C | `drama` |
+| `temperatura_c` | 20-30°C | `aventura` |
+| `temperatura_c` | >30°C | `divertida` |
+
+**Con scikit-learn**: se usa `KBinsDiscretizer(n_bins=3, strategy='quantile')`
+entrenado con una muestra representativa del rango 0-120 para discretizar la edad.
+El resultado es compatible con el mismo flujo de criterios que el motor Prolog consume.
+
+```python
+from preprocesador import discretizar
+resultado = discretizar({"edad_espectador": 8, "temperatura_c": 25.0})
+# → criterios_prolog: ["infantil", "aventura"]
+# → etiquetas_meta: {"publico": "Infantil (≤10 años: 8)", "temperatura": "Cálido…"}
+```
+            """
+        )
+
+
 try:
     motor = cargar_motor()
 except Exception as exc:
@@ -876,9 +1436,34 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.markdown("---")
+
+    # ---- Entregable 3: Acceso Modo Experto en sidebar ----
+    st.markdown("#### 🔐 Modo Experto")
+    st.caption("Solo para usuarios con rol Experto.")
+    clave_experto = st.text_input(
+        "Contraseña de experto",
+        type="password",
+        placeholder="••••••",
+        key="clave_experto_sidebar",
+    )
+    
+    _CLAVE_EXPERTO = "experto2026"
+    es_experto = clave_experto == _CLAVE_EXPERTO
+    if clave_experto and not es_experto:
+        st.markdown(
+            '<div class="expert-warning">Contraseña incorrecta.</div>',
+            unsafe_allow_html=True,
+        )
+    if es_experto:
+        st.markdown(
+            '<span class="expert-badge">Acceso Experto Activo</span>',
+            unsafe_allow_html=True,
+        )
+    st.markdown("---")
+
     conectado = motor.comprobar_conexion()
     if conectado:
-        st.markdown('<span class="status-ok">● Motor Prolog conectado</span>', unsafe_allow_html=True)
+        st.markdown('<span class="status-ok">Motor Prolog conectado</span>', unsafe_allow_html=True)
     posters_disponibles = sum(
         ruta_poster(str(pelicula_id)) is not None
         for pelicula_id in PELICULAS_CARTELERA
@@ -956,15 +1541,22 @@ if buscar or "respuesta" not in st.session_state:
 datos = st.session_state.respuesta
 st.markdown(resumen_busqueda_html(datos), unsafe_allow_html=True)
 
-tab_resultados, tab_por_que, tab_falta = st.tabs(
-    ["🎞️ Resultados", "🔎 ¿Por qué?", "🧭 ¿Qué falta?"]
+tab_resultados, tab_por_que, tab_falta, tab_dcg, tab_experto, tab_numerico = st.tabs(
+    ["🎞️ Resultados", "🔎 ¿Por qué?", "🧭 ¿Qué falta?",
+     "🧠 DCG / NLP", "🔐 Modo Experto", "🔢 Pre-procesamiento"]
 )
 with tab_resultados:
-    mostrar_resultados(datos)
+    mostrar_resultados(datos, prefijo_key="cartelera")
 with tab_por_que:
     mostrar_auditoria(datos)
 with tab_falta:
     mostrar_faltante(datos)
+with tab_dcg:
+    mostrar_panel_dcg()
+with tab_experto:
+    mostrar_panel_experto(es_experto)
+with tab_numerico:
+    mostrar_panel_numerico()
 
 pelicula_seleccionada = st.session_state.get("pelicula_seleccionada")
 if pelicula_seleccionada:
